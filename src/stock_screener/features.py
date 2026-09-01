@@ -29,6 +29,8 @@ class TechnicalFeatures:
     momentum_score: float  # 0–100 for catalyst bias
     # Oscillator / range context
     rsi14: float
+    rsi_slope: float  # RSI change over last 3 sessions (negative → oversold)
+    rsi_bias: str  # oversold / toward oversold / neutral / toward overbought / overbought
     rsi_score_support: float  # higher when oversold (good for dips)
     rsi_score_catalyst: float  # higher when firm momentum, not extreme OB
     high_52w: float
@@ -48,22 +50,41 @@ def _last(series: pd.Series) -> float | None:
     return float(s.iloc[-1])
 
 
-def compute_rsi(close: pd.Series, period: int = 14) -> float:
-    """Wilder-style RSI; returns 50.0 if insufficient history."""
+def compute_rsi_series(close: pd.Series, period: int = 14) -> pd.Series:
+    """Wilder-style RSI series."""
     c = close.dropna()
     if len(c) < period + 2:
-        return 50.0
+        return pd.Series(dtype=float)
     delta = c.diff()
     gain = delta.clip(lower=0.0)
     loss = (-delta).clip(lower=0.0)
     avg_gain = gain.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
     avg_loss = loss.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
-    ag = float(avg_gain.iloc[-1])
-    al = float(avg_loss.iloc[-1])
-    if al <= 1e-12:
-        return 100.0 if ag > 0 else 50.0
-    rs = ag / al
-    return float(np.clip(100.0 - (100.0 / (1.0 + rs)), 0.0, 100.0))
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    rsi = 100.0 - (100.0 / (1.0 + rs))
+    rsi = rsi.where(avg_loss > 1e-12, np.where(avg_gain > 1e-12, 100.0, 50.0))
+    return rsi.clip(0.0, 100.0)
+
+
+def compute_rsi(close: pd.Series, period: int = 14) -> float:
+    """Latest RSI value; returns 50.0 if insufficient history."""
+    series = compute_rsi_series(close, period=period)
+    if series.empty:
+        return 50.0
+    return float(series.iloc[-1])
+
+
+def rsi_bias_label(rsi: float, slope: float, *, slope_threshold: float = 2.0) -> str:
+    """Classify RSI level and short-term bend toward oversold or overbought."""
+    if rsi <= 30:
+        return "oversold"
+    if rsi >= 70:
+        return "overbought"
+    if slope <= -slope_threshold:
+        return "toward oversold"
+    if slope >= slope_threshold:
+        return "toward overbought"
+    return "neutral"
 
 
 def _rsi_support_score(rsi: float) -> float:
@@ -178,7 +199,14 @@ def compute_technicals(
 
     breakout = price >= resistance * 0.998
 
-    rsi14 = compute_rsi(c, period=14)
+    rsi_series = compute_rsi_series(c, period=14)
+    rsi14 = float(rsi_series.iloc[-1]) if not rsi_series.empty else 50.0
+    rsi_lookback = 3
+    if len(rsi_series) > rsi_lookback:
+        rsi_slope = float(rsi_series.iloc[-1] - rsi_series.iloc[-1 - rsi_lookback])
+    else:
+        rsi_slope = 0.0
+    rsi_bias = rsi_bias_label(rsi14, rsi_slope)
     rsi_support = _rsi_support_score(rsi14)
     rsi_catalyst = _rsi_catalyst_score(rsi14)
 
@@ -247,6 +275,8 @@ def compute_technicals(
         breakout=breakout,
         momentum_score=momentum_score,
         rsi14=round(rsi14, 2),
+        rsi_slope=round(rsi_slope, 2),
+        rsi_bias=rsi_bias,
         rsi_score_support=round(rsi_support, 1),
         rsi_score_catalyst=round(rsi_catalyst, 1),
         high_52w=round(high_52w, 2),

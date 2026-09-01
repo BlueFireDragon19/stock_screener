@@ -23,6 +23,8 @@ class ScreenRow:
     sma200: float
     sma_regime: str
     rsi14: float
+    rsi_slope: float
+    rsi_bias: str
     high_52w: float
     low_52w: float
     pct_from_52w_high: float
@@ -217,6 +219,8 @@ def _base_row(
         sma200=round(tech.sma_slow, 2),
         sma_regime=sma_regime_label(tech),
         rsi14=tech.rsi14,
+        rsi_slope=tech.rsi_slope,
+        rsi_bias=tech.rsi_bias,
         high_52w=tech.high_52w,
         low_52w=tech.low_52w,
         pct_from_52w_high=tech.pct_from_52w_high,
@@ -268,7 +272,7 @@ def build_support_row(
     why = "; ".join(
         [
             f"prox={tech.proximity:.2f}",
-            f"RSI={tech.rsi14:.0f}",
+            f"RSI={tech.rsi14:.0f} ({tech.rsi_bias})",
             f"52w={tech.pct_from_52w_high:+.1f}%H/{tech.pct_from_52w_low:+.1f}%L",
             sma_regime_label(tech),
             market.label,
@@ -318,8 +322,8 @@ def build_catalyst_row(
         flags.append(f"vol×{tech.volume_ratio:.1f}")
     if tech.day_return_pct >= market.regime.catalyst_min_day_return:
         flags.append(f"day{tech.day_return_pct:+.1f}%")
-    if tech.rsi14 >= 55:
-        flags.append(f"RSI={tech.rsi14:.0f}")
+    if tech.rsi14 >= 55 or tech.rsi_bias in {"toward overbought", "overbought"}:
+        flags.append(f"RSI={tech.rsi14:.0f} ({tech.rsi_bias})")
     if tech.pct_from_52w_high >= -5:
         flags.append("near52wH")
     why = "; ".join(

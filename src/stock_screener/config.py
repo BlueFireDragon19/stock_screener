@@ -1,0 +1,122 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class ScreenerConfig:
+    """Defaults for long-only screens (support + catalyst + fundamentals)."""
+
+    # Lookbacks
+    history_days: int = 320
+    donchian_window: int = 55
+    sma_fast: int = 50
+    sma_slow: int = 200
+    news_hours: int = 72
+
+    # Universe
+    universe: str = "us"  # "us" | "sp500"
+    min_price: float = 5.0
+    min_avg_dollar_volume: float = 20_000_000.0
+    avg_volume_window: int = 20
+    price_chunk_size: int = 150
+
+    # Mode: support | catalyst | fundamentals | politicians | both | all
+    mode: str = "all"
+
+    # Politicians mode
+    enable_politicians: bool = True
+    politicians_capitol_pages: int = 5
+    politicians_house_filings: int = 30
+    politicians_enable_capitol: bool = True
+    politicians_enable_house: bool = True
+    politicians_enable_senate: bool = True
+    politicians_lag_cap_days: int = 45
+    politicians_min_trades: int = 1
+
+    # Support-mode hard filters (neutral baseline; VIX regime adjusts)
+    min_range_pct: float = 0.05
+    max_proximity_for_long: float = 0.45
+    require_above_sma_slow: bool = True
+    drop_death_cross: bool = True
+
+    # Catalyst-mode hard filters / gates (neutral baseline)
+    catalyst_min_news_score: float = 58.0
+    catalyst_min_volume_ratio: float = 1.4
+    catalyst_min_day_return_pct: float = 0.5  # %
+    catalyst_require_signal: bool = True
+
+    # Support composite weights (sum ≈ 1.0)
+    weight_proximity: float = 0.25
+    weight_sma: float = 0.18
+    weight_rsi: float = 0.12
+    weight_market: float = 0.13
+    weight_news: float = 0.12
+    weight_earnings: float = 0.10
+    weight_social: float = 0.10
+
+    # Catalyst composite weights (sum ≈ 1.0)
+    cat_weight_news: float = 0.28
+    cat_weight_momentum: float = 0.22
+    cat_weight_rsi: float = 0.10
+    cat_weight_earnings: float = 0.18
+    cat_weight_social: float = 0.12
+    cat_weight_market: float = 0.10
+
+    # Soft RSI preferences (not hard filters)
+    support_prefer_rsi_below: float = 45.0
+    catalyst_prefer_rsi_above: float = 50.0
+    catalyst_rsi_overbought: float = 80.0
+
+    # Fundamentals enrich on top technical survivors
+    fundamentals_enrich_top: int = 20
+    enable_fundamentals: bool = True
+
+    # Market sentiment via VIX
+    vix_risk_on: float = 15.0
+    vix_risk_off: float = 25.0
+
+    # Runtime
+    max_tickers: int | None = None
+    sleep_between_news: float = 0.15
+    top_n: int = 25
+    grok_top_n: int = 15
+    enable_reddit: bool = True
+    enable_earnings: bool = True
+    enable_grok: bool = True
+
+
+DEFAULT_CONFIG = ScreenerConfig()
+
+FALLBACK_UNIVERSE = [
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "AMZN",
+    "GOOGL",
+    "META",
+    "BRK-B",
+    "JPM",
+    "XOM",
+    "UNH",
+    "V",
+    "MA",
+    "HD",
+    "PG",
+    "JNJ",
+    "COST",
+    "ABBV",
+    "AVGO",
+    "MRK",
+    "LLY",
+    "PEP",
+    "KO",
+    "WMT",
+    "BAC",
+    "CRM",
+    "AMD",
+    "NFLX",
+    "DIS",
+    "ADBE",
+    "CSCO",
+]

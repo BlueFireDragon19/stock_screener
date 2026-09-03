@@ -37,10 +37,28 @@ def md_table(headers: list[str], rows: list[list[str]]) -> str:
     return "\n".join(lines)
 
 
+def _short_pols(name: str, limit: int = 40) -> str:
+    text = (name or "—").strip()
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _pct_cell(value: str | None, *, already_ratio: bool = True) -> str:
+    if value in (None, ""):
+        return "—"
+    try:
+        x = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    if already_ratio and abs(x) <= 1.5:
+        x *= 100.0
+    return f"{x:.1f}%"
+
+
 def build_home_md() -> str:
     support_path = OUTPUT / "screen_support.csv"
     catalyst_path = OUTPUT / "screen_catalyst.csv"
     fund_path = OUTPUT / "screen_fundamentals.csv"
+    pol_path = OUTPUT / "screen_politicians.csv"
     for path in (support_path, catalyst_path, fund_path):
         if not path.exists():
             raise SystemExit(f"Missing {path}. Run the screener first.")
@@ -48,6 +66,7 @@ def build_home_md() -> str:
     support = read_csv(support_path)
     catalyst = read_csv(catalyst_path)
     fund = read_csv(fund_path)
+    politicians = read_csv(pol_path) if pol_path.exists() else []
     as_of = datetime.fromtimestamp(support_path.stat().st_mtime).strftime("%Y-%m-%d")
     regime = support[0].get("market_label", "—") if support else "—"
 
@@ -93,6 +112,10 @@ def build_home_md() -> str:
         [
             r["ticker"],
             (r.get("sector") or "—")[:24],
+            fmt_num(r.get("trailing_pe"), 1),
+            fmt_num(r.get("peg"), 2),
+            _pct_cell(r.get("fcf_yield")),
+            _pct_cell(r.get("roe")),
             fmt_num(r["composite"]),
             fmt_num(r["growth_score"], 1),
             fmt_num(r["profitability_score"], 1),
@@ -100,6 +123,35 @@ def build_home_md() -> str:
         ]
         for r in fund[:10]
     ]
+
+    pol_rows = [
+        [
+            r["ticker"],
+            fmt_num(r["score"], 1),
+            r.get("buy_count", "0"),
+            r.get("sell_count", "0"),
+            fmt_num(r.get("avg_filed_after"), 1),
+            _short_pols(r.get("politicians", "")),
+            (r.get("sources") or "—")[:20],
+        ]
+        for r in politicians[:15]
+    ]
+
+    pol_section = ""
+    if pol_rows:
+        pol_section = f"""
+## Politicians (top 15)
+
+{md_table([
+    "Ticker", "Score", "Buys", "Sells", "Filed after (d)", "Politicians", "Sources"
+], pol_rows)}
+"""
+    else:
+        pol_section = """
+## Politicians
+
+_No `output/screen_politicians.csv` yet — run `stock-screener --mode politicians` or `--mode all`._
+"""
 
     return f"""# Screener dashboard
 
@@ -122,19 +174,19 @@ Long-only stock screener results (auto-generated from latest CSV output).
 ## Fundamentals (top 10)
 
 {md_table([
-    "Ticker", "Sector", "Score", "Growth", "Profit", "Value"
+    "Ticker", "Sector", "PE", "PEG", "FCF yld", "ROE", "Score", "Growth", "Profit", "Value"
 ], fund_rows)}
-
+{pol_section}
 ---
 
 ### Refresh
 
 ```bash
-stock-screener --mode both --no-politicians
+stock-screener --mode all
 python3 scripts/publish_wiki.py --push
 ```
 
-Source: `output/screen_support.csv`, `output/screen_catalyst.csv`, `output/screen_fundamentals.csv`
+Source: `output/screen_support.csv`, `output/screen_catalyst.csv`, `output/screen_fundamentals.csv`, `output/screen_politicians.csv`
 """
 
 

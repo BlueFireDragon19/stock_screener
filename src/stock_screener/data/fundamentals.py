@@ -36,6 +36,9 @@ class FundamentalsSnapshot:
     price_to_sales: float | None
     price_to_book: float | None
     ev_ebitda: float | None
+    peg: float | None  # PE / growth (lower = cheaper growth)
+    market_cap: float | None
+    fcf_yield: float | None  # FCF / market cap
     # Pillar scores 0–100
     growth_score: float
     profitability_score: float
@@ -137,6 +140,8 @@ def _score_valuation(
     ps: float | None,
     pb: float | None,
     ev: float | None,
+    peg: float | None = None,
+    fcf_yield: float | None = None,
 ) -> float:
     """Higher score = cheaper / more reasonable multiple (long-only value bias)."""
     parts: list[float] = []
@@ -163,7 +168,60 @@ def _score_valuation(
         parts.append(80.0 if pb < 2 else 60.0 if pb < 5 else 40.0 if pb < 10 else 25.0)
     if ev is not None and ev > 0:
         parts.append(85.0 if ev < 10 else 65.0 if ev < 15 else 45.0 if ev < 25 else 30.0)
+    if peg is not None and peg > 0:
+        # PEG < 1 cheap growth; > 2 expensive
+        if peg < 1.0:
+            parts.append(90.0)
+        elif peg < 1.5:
+            parts.append(75.0)
+        elif peg < 2.0:
+            parts.append(55.0)
+        elif peg < 3.0:
+            parts.append(40.0)
+        else:
+            parts.append(25.0)
+    if fcf_yield is not None:
+        # 5%+ strong cash yield; negative = poor
+        if fcf_yield >= 0.06:
+            parts.append(90.0)
+        elif fcf_yield >= 0.04:
+            parts.append(75.0)
+        elif fcf_yield >= 0.02:
+            parts.append(60.0)
+        elif fcf_yield > 0:
+            parts.append(45.0)
+        else:
+            parts.append(20.0)
     return sum(parts) / len(parts) if parts else 50.0
+
+
+def _normalize_roe(roe: float | None) -> float | None:
+    """Yahoo may return 0.15 or 15 for 15% ROE."""
+    if roe is None:
+        return None
+    return roe / 100.0 if roe > 1.5 else roe
+
+
+def _compute_peg(
+    peg_raw: float | None,
+    pe: float | None,
+    earnings_growth: float | None,
+) -> float | None:
+    if peg_raw is not None and peg_raw > 0:
+        return peg_raw
+    if pe is None or pe <= 0 or earnings_growth is None:
+        return None
+    # earningsGrowth often decimal (0.12 = 12%)
+    g = earnings_growth * 100.0 if abs(earnings_growth) < 1.5 else earnings_growth
+    if g <= 0:
+        return None
+    return pe / g
+
+
+def _compute_fcf_yield(fcf: float | None, market_cap: float | None) -> float | None:
+    if fcf is None or market_cap is None or market_cap <= 0:
+        return None
+    return fcf / market_cap
 
 
 def fetch_fundamentals(ticker: str) -> FundamentalsSnapshot | None:
@@ -193,12 +251,17 @@ def fetch_fundamentals(ticker: str) -> FundamentalsSnapshot | None:
     ps = _f(info, "priceToSalesTrailing12Months")
     pb = _f(info, "priceToBook")
     ev = _f(info, "enterpriseToEbitda")
+    peg_raw = _f(info, "trailingPegRatio", "pegRatio")
+    mcap = _f(info, "marketCap")
+    peg = _compute_peg(peg_raw, pe if pe is not None else fwd, eps_g)
+    fcf_y = _compute_fcf_yield(fcf, mcap)
+    roe_n = _normalize_roe(roe)
 
     growth = _score_growth(rev, eps_g)
     profitability = _score_profitability(gross, op, profit, fcf)
     balance = _score_balance(de, current)
-    capital = _score_capital(roe, roa, div)
-    valuation = _score_valuation(pe, fwd, ps, pb, ev)
+    capital = _score_capital(roe_n, roa, div)
+    valuation = _score_valuation(pe, fwd, ps, pb, ev, peg=peg, fcf_yield=fcf_y)
 
     composite = round(
         0.20 * growth
@@ -228,7 +291,7 @@ def fetch_fundamentals(ticker: str) -> FundamentalsSnapshot | None:
             fcf=fcf,
             debt_to_equity=de,
             current_ratio=current,
-            roe=roe,
+            roe=roe_n,
             roa=roa,
             dividend_yield=div,
             payout_ratio=payout,
@@ -237,6 +300,9 @@ def fetch_fundamentals(ticker: str) -> FundamentalsSnapshot | None:
             price_to_sales=ps,
             price_to_book=pb,
             ev_ebitda=ev,
+            peg=peg,
+            market_cap=mcap,
+            fcf_yield=fcf_y,
             growth_score=growth,
             profitability_score=profitability,
             balance_score=balance,
@@ -267,6 +333,10 @@ def fetch_fundamentals(ticker: str) -> FundamentalsSnapshot | None:
         f"cap={capital:.0f}",
         f"val={valuation:.0f}",
     ]
+    if peg is not None:
+        bits.append(f"peg={peg:.2f}")
+    if fcf_y is not None:
+        bits.append(f"fcfy={fcf_y:.1%}")
     if info.get("sector"):
         bits.insert(0, str(info.get("sector")))
 
@@ -282,7 +352,7 @@ def fetch_fundamentals(ticker: str) -> FundamentalsSnapshot | None:
         fcf=fcf,
         debt_to_equity=de,
         current_ratio=current,
-        roe=roe,
+        roe=roe_n,
         roa=roa,
         dividend_yield=div,
         payout_ratio=payout,
@@ -291,6 +361,9 @@ def fetch_fundamentals(ticker: str) -> FundamentalsSnapshot | None:
         price_to_sales=ps,
         price_to_book=pb,
         ev_ebitda=ev,
+        peg=round(peg, 3) if peg is not None else None,
+        market_cap=mcap,
+        fcf_yield=round(fcf_y, 4) if fcf_y is not None else None,
         growth_score=round(growth, 1),
         profitability_score=round(profitability, 1),
         balance_score=round(balance, 1),

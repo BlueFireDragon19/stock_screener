@@ -64,16 +64,44 @@ def _enrich_with_fundamentals(
     out = df.copy()
     scores = []
     whys = []
+    pegs = []
+    fcfys = []
+    roes = []
+    pes = []
+    gross_ms = []
+    profit_ms = []
     for t in out["ticker"]:
         snap = fund_map.get(t)
         if snap and snap.pass_filters:
             scores.append(snap.composite)
             whys.append(snap.why)
+            pegs.append(snap.peg if snap.peg is not None else float("nan"))
+            fcfys.append(snap.fcf_yield if snap.fcf_yield is not None else float("nan"))
+            roes.append(snap.roe if snap.roe is not None else float("nan"))
+            pes.append(snap.trailing_pe if snap.trailing_pe is not None else float("nan"))
+            gross_ms.append(
+                snap.gross_margin if snap.gross_margin is not None else float("nan")
+            )
+            profit_ms.append(
+                snap.profit_margin if snap.profit_margin is not None else float("nan")
+            )
         else:
             scores.append(float("nan"))
             whys.append("")
+            pegs.append(float("nan"))
+            fcfys.append(float("nan"))
+            roes.append(float("nan"))
+            pes.append(float("nan"))
+            gross_ms.append(float("nan"))
+            profit_ms.append(float("nan"))
     out["fund_score"] = scores
     out["fund_why"] = whys
+    out["peg"] = pegs
+    out["fcf_yield"] = fcfys
+    out["roe"] = roes
+    out["trailing_pe"] = pes
+    out["gross_margin"] = gross_ms
+    out["profit_margin"] = profit_ms
     return out
 
 

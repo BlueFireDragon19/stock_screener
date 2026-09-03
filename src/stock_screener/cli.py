@@ -133,6 +133,17 @@ def main(argv: list[str] | None = None) -> int:
         f"\nMarket: {market.label} | VIX={market.vix if market.vix is not None else 'n/a'}"
     )
     print(f"Regime: {market.reason}")
+    try:
+        from stock_screener.data.market_cycle import assess_market_cycle
+
+        cycle = assess_market_cycle()
+        cape_s = f"{cycle.cape:.1f}" if cycle.cape is not None else "n/a"
+        buff_s = f"{cycle.buffett_pct:.0f}%" if cycle.buffett_pct is not None else "n/a"
+        print(
+            f"Market cycle: {cycle.label} | CAPE={cape_s} | Buffett={buff_s} ({cycle.note})"
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     any_rows = False
@@ -166,6 +177,9 @@ def main(argv: list[str] | None = None) -> int:
                     "sma_regime",
                     "news_score",
                     "fund_score",
+                    "peg",
+                    "fcf_yield",
+                    "roe",
                     "composite",
                     "why",
                 ],
@@ -198,6 +212,10 @@ def main(argv: list[str] | None = None) -> int:
                     "pct_from_1w_high",
                     "news_score",
                     "momentum_score",
+                    "fund_score",
+                    "peg",
+                    "fcf_yield",
+                    "roe",
                     "composite",
                     "why",
                 ],
@@ -224,6 +242,12 @@ def main(argv: list[str] | None = None) -> int:
                 [
                     "ticker",
                     "sector",
+                    "trailing_pe",
+                    "peg",
+                    "fcf_yield",
+                    "roe",
+                    "gross_margin",
+                    "profit_margin",
                     "growth_score",
                     "profitability_score",
                     "balance_score",

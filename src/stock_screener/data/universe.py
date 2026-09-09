@@ -11,6 +11,35 @@ from stock_screener.config import FALLBACK_UNIVERSE
 
 logger = logging.getLogger(__name__)
 
+# When --limit truncates an alphabetical SP500 list, keep mega-caps in the scan.
+# (Alphabetical A…CBRE @ limit=80 previously dropped NVDA at index ~339.)
+PRIORITY_LIQUID_TICKERS = [
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "AMZN",
+    "GOOGL",
+    "GOOG",
+    "META",
+    "AVGO",
+    "TSLA",
+    "BRK-B",
+    "JPM",
+    "V",
+    "MA",
+    "XOM",
+    "UNH",
+    "LLY",
+    "JNJ",
+    "WMT",
+    "PG",
+    "HD",
+    "COST",
+    "AMD",
+    "NFLX",
+    "CRM",
+    "ORCL",
+]
 SP500_WIKI_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 NASDAQ_LISTED_URL = "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt"
 OTHER_LISTED_URL = "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt"
@@ -157,6 +186,8 @@ def resolve_universe(
     Resolve the scan universe.
 
     universe: "us" (NASDAQ directories), "sp500" (Wikipedia), or ignored when tickers set.
+    When ``limit`` is set, liquid mega-caps are kept first so names like NVDA
+    are not dropped by alphabetical truncation.
     """
     if tickers:
         resolved = [_normalize_symbol(t) for t in tickers]
@@ -165,5 +196,27 @@ def resolve_universe(
     else:
         resolved = fetch_us_listed_tickers()
     if limit is not None:
-        resolved = resolved[:limit]
+        resolved = _apply_limit_with_priority(resolved, limit)
     return resolved
+
+
+def _apply_limit_with_priority(tickers: list[str], limit: int) -> list[str]:
+    if limit <= 0:
+        return []
+    if len(tickers) <= limit:
+        return list(tickers)
+    seen: set[str] = set()
+    out: list[str] = []
+    for t in PRIORITY_LIQUID_TICKERS:
+        if t in tickers and t not in seen:
+            out.append(t)
+            seen.add(t)
+            if len(out) >= limit:
+                return out
+    for t in tickers:
+        if t not in seen:
+            out.append(t)
+            seen.add(t)
+            if len(out) >= limit:
+                break
+    return out

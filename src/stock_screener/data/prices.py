@@ -73,6 +73,59 @@ def download_prices(
     return out
 
 
+def download_intraday(
+    tickers: list[str],
+    *,
+    interval: str = "4h",
+    period: str = "60d",
+    chunk_size: int = 40,
+) -> pd.DataFrame:
+    """
+    Download intraday OHLCV (e.g. 4h) for RSI / short-TF screens.
+
+    Yahoo limits history by interval; 4h typically ~60 days.
+    Returns MultiIndex columns (field, ticker).
+    """
+    if not tickers:
+        return pd.DataFrame()
+
+    frames: list[pd.DataFrame] = []
+    logger.info(
+        "Downloading %s bars for %d tickers (period=%s, chunk=%d)",
+        interval,
+        len(tickers),
+        period,
+        chunk_size,
+    )
+    for i in range(0, len(tickers), chunk_size):
+        batch = tickers[i : i + chunk_size]
+        logger.info(
+            "Intraday chunk %d–%d / %d", i + 1, i + len(batch), len(tickers)
+        )
+        raw = yf.download(
+            tickers=batch,
+            period=period,
+            interval=interval,
+            group_by="column",
+            auto_adjust=True,
+            threads=True,
+            progress=False,
+        )
+        part = _normalize_download(raw, batch)
+        if not part.empty:
+            frames.append(part)
+
+    if not frames:
+        logger.warning("No intraday data returned")
+        return pd.DataFrame()
+    if len(frames) == 1:
+        return frames[0]
+    out = frames[0]
+    for frame in frames[1:]:
+        out = out.join(frame, how="outer")
+    return out
+
+
 def series_for(prices: pd.DataFrame, field: str, ticker: str) -> pd.Series:
     if prices.empty:
         return pd.Series(dtype=float)

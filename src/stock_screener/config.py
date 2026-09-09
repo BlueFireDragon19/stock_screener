@@ -21,7 +21,7 @@ class ScreenerConfig:
     avg_volume_window: int = 20
     price_chunk_size: int = 150
 
-    # Mode: support | catalyst | fundamentals | politicians | both | all
+    # Mode: support | catalyst | fundamentals | politicians | trump | athdip | both | all
     mode: str = "all"
 
     # Politicians mode
@@ -34,6 +34,30 @@ class ScreenerConfig:
     politicians_lag_cap_days: int = 45
     politicians_min_trades: int = 1
 
+    # Trump tracker (Truth Social + news + WH + optional X/Grok)
+    enable_trump: bool = True
+    trump_enable_truth: bool = True
+    trump_enable_news: bool = True
+    trump_enable_wh: bool = True
+    trump_enable_x: bool = True
+    trump_truth_max_posts: int = 80
+
+    # Athdip: recent multi-year ATH setup → later 4h RSI dip (sequential)
+    athdip_max_pct_from_ath: float = -50.0  # optional depth cap when near-ATH gate on
+    athdip_rsi_4h_target: float = 25.0  # prefer deeper oversold
+    athdip_rsi_4h_max: float = 31.0  # trigger: 4h RSI ≤ this (TV~30; Yahoo often ~30–31)
+    athdip_require_uptrend: bool = False
+    athdip_require_sma50: bool = False
+    athdip_use_4h_ema200: bool = False
+    athdip_ema200_max_pct: float = -5.0
+    athdip_history_days: int = 1825  # ~5y for multi-year prior high
+    athdip_intraday_period: str = "730d"  # Yahoo 4h history (~2–3y)
+    athdip_fresh_high_days: int = 21  # breakout window used at ATH time
+    athdip_max_days_since_ath: int = 63  # watch pullbacks for ~3 months after ATH
+    athdip_rsi_lookback_days: int = 5  # min 4h RSI over this many calendar days (catch mid-week dips)
+    athdip_require_multi_year_break: bool = True  # require break-at-ATH setup
+    athdip_require_near_ath_pct: bool = False
+    athdip_drop_death_cross: bool = False
     # Support-mode hard filters (neutral baseline; VIX regime adjusts)
     min_range_pct: float = 0.05
     max_proximity_for_long: float = 0.45

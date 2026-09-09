@@ -30,8 +30,8 @@ def _load_dotenv(path: Path | None = None) -> None:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description=(
-            "Long-only screener: support, catalyst, fundamentals, politicians; "
-            "VIX regime adjusts gates"
+            "Long-only screener: support, catalyst, fundamentals, politicians, "
+            "trump, athdip; VIX regime adjusts gates"
         ),
     )
     p.add_argument("--tickers", type=str, default="", help="Comma-separated tickers")
@@ -43,9 +43,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--mode",
-        choices=("support", "catalyst", "fundamentals", "politicians", "both", "all"),
+        choices=(
+            "support",
+            "catalyst",
+            "fundamentals",
+            "politicians",
+            "trump",
+            "athdip",
+            "both",
+            "all",
+        ),
         default="all",
-        help="Screen mode (default: all)",
+        help="Screen mode (default: all). athdip = recent multi-year ATH + 4h RSI dip",
     )
     p.add_argument("--limit", type=int, default=None, help="Cap universe size")
     p.add_argument("--top", type=int, default=25, help="Rows to print per mode")
@@ -60,13 +69,74 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-earnings", action="store_true")
     p.add_argument("--no-fundamentals", action="store_true")
     p.add_argument("--no-politicians", action="store_true")
+    p.add_argument("--no-trump", action="store_true", help="Disable Trump tracker")
+    p.add_argument(
+        "--no-trump-truth",
+        action="store_true",
+        help="Skip Truth Social (trumpstruth.org RSS)",
+    )
+    p.add_argument(
+        "--no-trump-news",
+        action="store_true",
+        help="Skip Google News RSS for Trump/policy",
+    )
+    p.add_argument(
+        "--no-trump-wh",
+        action="store_true",
+        help="Skip White House official RSS (news / EO / briefings)",
+    )
+    p.add_argument(
+        "--no-trump-x",
+        action="store_true",
+        help="Skip Trump X posts via Grok (Truth/news/WH still run)",
+    )
+    p.add_argument(
+        "--trump-max-posts",
+        type=int,
+        default=80,
+        help="Max Truth Social posts to pull from RSS (default 80)",
+    )
     p.add_argument("--no-capitoltrades", action="store_true")
     p.add_argument("--no-house", action="store_true")
     p.add_argument("--no-senate", action="store_true")
-    p.add_argument("--no-grok", action="store_true")
+    p.add_argument(
+        "--no-grok",
+        action="store_true",
+        help="Disable Grok (support/catalyst X sentiment AND Trump X feed)",
+    )
     p.add_argument("--grok-top", type=int, default=15)
     p.add_argument("--politician-pages", type=int, default=5)
     p.add_argument("--house-filings", type=int, default=25)
+    p.add_argument(
+        "--athdip-max-pct",
+        type=float,
+        default=-100.0,
+        help="Athdip: unused unless near-ATH pct gate enabled (default -100)",
+    )
+    p.add_argument(
+        "--athdip-rsi-max",
+        type=float,
+        default=31.0,
+        help="Athdip: 4h RSI must be ≤ this (default 31 ≈ TradingView 30)",
+    )
+    p.add_argument(
+        "--athdip-fresh-days",
+        type=int,
+        default=21,
+        help="Athdip: breakout window used at ATH time (default 21)",
+    )
+    p.add_argument(
+        "--athdip-max-ath-age",
+        type=int,
+        default=63,
+        help="Athdip: max trading days since multi-year ATH to watch (default 63)",
+    )
+    p.add_argument(
+        "--athdip-rsi-lookback",
+        type=int,
+        default=5,
+        help="Athdip: min 4h RSI over last N calendar days (default 5; catches mid-week dips)",
+    )
     p.add_argument(
         "--allow-below-200",
         action="store_true",
@@ -119,11 +189,22 @@ def main(argv: list[str] | None = None) -> int:
         politicians_enable_senate=not args.no_senate,
         politicians_capitol_pages=args.politician_pages,
         politicians_house_filings=args.house_filings,
+        enable_trump=not args.no_trump,
+        trump_enable_truth=not args.no_trump_truth,
+        trump_enable_news=not args.no_trump_news,
+        trump_enable_wh=not args.no_trump_wh,
+        trump_enable_x=not args.no_trump_x,
+        trump_truth_max_posts=args.trump_max_posts,
+        athdip_max_pct_from_ath=args.athdip_max_pct,
+        athdip_rsi_4h_max=args.athdip_rsi_max,
+        athdip_fresh_high_days=args.athdip_fresh_days,
+        athdip_max_days_since_ath=args.athdip_max_ath_age,
+        athdip_rsi_lookback_days=args.athdip_rsi_lookback,
         enable_grok=not args.no_grok,
         grok_top_n=args.grok_top,
     )
 
-    support_df, catalyst_df, fund_df, pol_df, market = run_screener(
+    support_df, catalyst_df, fund_df, pol_df, trump_df, athdip_df, market = run_screener(
         config=config,
         tickers=tickers,
         fetch_news=not args.no_news,
@@ -152,6 +233,8 @@ def main(argv: list[str] | None = None) -> int:
         "catalyst",
         "fundamentals",
         "politicians",
+        "trump",
+        "athdip",
     }
 
     if args.mode in {"support", "both", "all"}:
@@ -291,6 +374,77 @@ def main(argv: list[str] | None = None) -> int:
                 args.top,
             )
             print(f"Saved {len(pol_df)} rows → {path}")
+
+    if args.mode in {"trump", "all"} or (
+        not args.no_trump and args.mode in {"both", "support", "catalyst"}
+    ):
+        print(
+            "\n=== TRUMP TRACKER (Truth + news + WH + optional X · freshness-weighted) ==="
+        )
+        if trump_df.empty:
+            print("No Trump-linked tickers scored.")
+        else:
+            any_rows = True
+            path = _save(
+                trump_df,
+                args.output,
+                "trump",
+                single and args.mode == "trump",
+            )
+            _print_table(
+                trump_df,
+                [
+                    "ticker",
+                    "score",
+                    "mention_count",
+                    "mention_weight",
+                    "themes",
+                    "sources",
+                    "sample_text",
+                    "why",
+                ],
+                args.top,
+            )
+            print(f"Saved {len(trump_df)} rows → {path}")
+
+    if args.mode in {"athdip", "all"}:
+        print(
+            f"\n=== ATHDIP (multi-year ATH ≤{args.athdip_max_ath_age}d ago · "
+            f"4h RSI ≤ {args.athdip_rsi_max:.0f}) ==="
+        )
+        if athdip_df.empty:
+            print(
+                "No names passed athdip filters "
+                f"(recent multi-year ATH setup + 4h RSI ≤ {args.athdip_rsi_max:.0f}). "
+                "Try --athdip-rsi-max 35 or --athdip-max-ath-age 90 for a wider list."
+            )
+        else:
+            any_rows = True
+            path = _save(
+                athdip_df,
+                args.output,
+                "athdip",
+                single and args.mode == "athdip",
+            )
+            _print_table(
+                athdip_df,
+                [
+                    "ticker",
+                    "price",
+                    "ath_high",
+                    "prior_high",
+                    "pct_from_ath",
+                    "days_since_ath",
+                    "rsi_4h",
+                    "rsi14",
+                    "sma_regime",
+                    "pct_from_52w_high",
+                    "composite",
+                    "why",
+                ],
+                args.top,
+            )
+            print(f"Saved {len(athdip_df)} rows → {path}")
 
     return 0 if any_rows else 1
 

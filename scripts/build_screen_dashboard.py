@@ -754,7 +754,7 @@ export default function ScreenDashboard() {{
       "Athdip-mode composite score (higher means deeper four-hour relative strength index and a fresher all-time-high setup)",
     ),
     th("Sup", "Support-mode composite score"),
-    th("Cat", "Catalyst-mode composite score"),
+    th("Cat", "Catalyst-mode composite score (Yahoo news ± X-quoting headlines ± Polymarket social)"),
     th("Fund", "Fundamentals-mode composite score"),
     th(
       "Pol",
@@ -883,7 +883,16 @@ export default function ScreenDashboard() {{
           <Pill tone="success">ATH setup + 4h RSI dip</Pill>
         </Row>
         <Table
-          headers={{["Ticker","Price","ATH","%ATH","Days","RSI 4h","RSI D","Score"]}}
+          headers={{[
+            th("Ticker", "Stock ticker symbol"),
+            th("Price", "Latest screen price (usually prior session close or last available quote)"),
+            th("ATH", "Multi-year all-time high used for the athdip setup"),
+            th("%ATH", "Percent below the all-time high (more negative means a deeper pullback)"),
+            th("Days", "Trading days since the multi-year all-time high"),
+            th("RSI 4h", "Minimum four-hour relative strength index over the lookback window (trigger when at or below about 31)"),
+            th("RSI D", "Daily fourteen-period relative strength index"),
+            th("Score", "Athdip-mode composite score"),
+          ]}}
           columnAlign={{["left","right","right","right","right","right","right","right"]}}
           rows={{ATHDIP.map((r) => [
             r.ticker,
@@ -917,7 +926,12 @@ export default function ScreenDashboard() {{
           height={{200}}
         />
         <Table
-          headers={{["Ticker","Score","Mentions","Themes"]}}
+          headers={{[
+            th("Ticker", "Stock ticker symbol"),
+            th("Score", "Trump-tracker theme score from Truth Social, news, and White House feeds"),
+            th("Mentions", "Count of matched posts or headlines mapped to this ticker"),
+            th("Themes", "Policy or company themes that triggered the mapping"),
+          ]}}
           columnAlign={{["left","right","right","left"]}}
           rows={{TRUMP.map((r) => [r.ticker, dash(r.score), String(r.mentions), r.themes])}}
           rowTone={{TRUMP.map((r) => trumpTone(r.score))}}
@@ -934,7 +948,14 @@ export default function ScreenDashboard() {{
           height={{200}}
         />
         <Table
-          headers={{["Mode","Return %","Excess %","Win %","Max DD %","Avg #"]}}
+          headers={{[
+            th("Mode", "Backtest mode or strategy label"),
+            th("Return %", "Year-to-date strategy return in percent"),
+            th("Excess %", "Strategy return minus SPY over the same window"),
+            th("Win %", "Share of rebalance periods with a positive return"),
+            th("Max DD %", "Maximum peak-to-trough drawdown in percent"),
+            th("Avg #", "Average number of holdings per rebalance"),
+          ]}}
           columnAlign={{["left","right","right","right","right","right"]}}
           rows={{BACKTEST_YTD.map((r) => [
             r.mode,
@@ -952,7 +973,14 @@ export default function ScreenDashboard() {{
       <Stack gap={{10}}>
         <H2>Politicians</H2>
         <Table
-          headers={{["Ticker","Score","Buys","Sells","Filed after","Politicians"]}}
+          headers={{[
+            th("Ticker", "Stock ticker symbol"),
+            th("Score", "Politicians-mode score from freshness-weighted United States Congress trading flow"),
+            th("Buys", "Count of buy-side disclosures in the lookback"),
+            th("Sells", "Count of sell-side disclosures in the lookback"),
+            th("Filed after", "Average days between trade and filing (lower is fresher)"),
+            th("Politicians", "Lawmakers associated with the matched trades"),
+          ]}}
           columnAlign={{["left","right","right","right","right","left"]}}
           rows={{POLITICIANS.map((r) => [
             r.ticker,
@@ -971,7 +999,18 @@ export default function ScreenDashboard() {{
       <Stack gap={{10}}>
         <H2>Support</H2>
         <Table
-          headers={{["Ticker","Price","RSI","Bias","Prox","%52wH","PEG","FCF","ROE","Score"]}}
+          headers={{[
+            th("Ticker", "Stock ticker symbol"),
+            th("Price", "Latest screen price"),
+            th("RSI", "Daily fourteen-period relative strength index"),
+            th("Bias", "Whether RSI is bending toward oversold or overbought (arrow shows slope)"),
+            th("Prox", "Proximity to support versus resistance (lower means closer to support)"),
+            th("%52wH", "Percent from the fifty-two-week high"),
+            th("PEG", "Price/earnings-to-growth ratio"),
+            th("FCF", "Free-cash-flow yield"),
+            th("ROE", "Return on equity"),
+            th("Score", "Support-mode composite score"),
+          ]}}
           columnAlign={{["left","right","right","left","right","right","right","right","right","right"]}}
           rows={{SUPPORT.map((r) => [
             r.ticker,
@@ -994,7 +1033,16 @@ export default function ScreenDashboard() {{
       <Stack gap={{10}}>
         <H2>Catalyst</H2>
         <Table
-          headers={{["Ticker","Price","RSI","Bias","Day %","Vol×","%52wH","Score"]}}
+          headers={{[
+            th("Ticker", "Stock ticker symbol"),
+            th("Price", "Latest screen price"),
+            th("RSI", "Daily fourteen-period relative strength index"),
+            th("Bias", "Whether RSI is bending toward oversold or overbought (arrow shows slope)"),
+            th("Day %", "One-day percent price change"),
+            th("Vol×", "Volume versus recent average (above about 1.4 often counts as a catalyst signal)"),
+            th("%52wH", "Percent from the fifty-two-week high"),
+            th("Score", "Catalyst-mode composite (includes Yahoo news ± X-quoting headlines ± Polymarket social)"),
+          ]}}
           columnAlign={{["left","right","right","left","right","right","right","right"]}}
           rows={{CATALYST.map((r) => [
             r.ticker,
@@ -1015,7 +1063,14 @@ export default function ScreenDashboard() {{
       <Stack gap={{10}}>
         <H2>Fundamentals</H2>
         <Table
-          headers={{["Ticker","Sector","PEG","FCF yld","ROE","Score"]}}
+          headers={{[
+            th("Ticker", "Stock ticker symbol"),
+            th("Sector", "Company sector classification from Yahoo Finance"),
+            th("PEG", "Price/earnings-to-growth ratio (lower often means cheaper relative to expected growth)"),
+            th("FCF yld", "Free-cash-flow yield"),
+            th("ROE", "Return on equity"),
+            th("Score", "Fundamentals-mode composite score"),
+          ]}}
           columnAlign={{["left","left","right","right","right","right"]}}
           rows={{FUNDAMENTALS.map((r) => [
             r.ticker,

@@ -28,7 +28,7 @@ const RUN = {
   universe: 80,
   support: 32,
   catalyst: 68,
-  fund: 19,
+  fund: 5,
   pol: 238,
   trumpPosts: 372,
   trumpTickers: 69,
@@ -40,12 +40,10 @@ const RUN = {
 
 const FOCUS = [
   {kind:"conflict",ticker:"AMGN",price:391.27,tags:"athdip \u00b7 politicians",why:"Athdip dip vs Congress sells (0/3) \u00b7 px 391.27 < trigger 393.17 (2026-09-08)",athdip:52.1,support:null,catalyst:null,fund:null,pol:37.6,trump:null,rsi4h:23.5,sector:"",pe:24.3,peg:2.11,fcfy:4.1,roe:91.5},
-  {kind:"intersection",ticker:"ADI",price:364.05,tags:"support \u00b7 catalyst \u00b7 fundamentals",why:"Support+fund confirm",athdip:null,support:78.0,catalyst:62.0,fund:73.1,pol:null,trump:null,rsi4h:null,sector:"Technology",pe:43.2,peg:0.54,fcfy:2.4,roe:12.2},
-  {kind:"intersection",ticker:"AMAT",price:469.87,tags:"support \u00b7 catalyst \u00b7 fundamentals \u00b7 politicians",why:"Support+fund confirm \u00b7 pol sell=1",athdip:null,support:78.7,catalyst:59.5,fund:74.9,pol:48.7,trump:null,rsi4h:null,sector:"Technology",pe:40.5,peg:0.9,fcfy:0.8,roe:41.1},
-  {kind:"single",ticker:"AFL",price:114.89,tags:"support \u00b7 catalyst \u00b7 fundamentals \u00b7 politicians",why:"Top support score today",athdip:null,support:86.8,catalyst:61.5,fund:66.0,pol:46.9,trump:null,rsi4h:null,sector:"Financial Services",pe:12.4,peg:1.18,fcfy:8.9,roe:16.9},
-  {kind:"single",ticker:"ADM",price:85.85,tags:"catalyst",why:"Top catalyst score today",athdip:null,support:null,catalyst:77.1,fund:null,pol:null,trump:null,rsi4h:null,sector:"",pe:23.5,peg:1.05,fcfy:2.8,roe:7.6},
-  {kind:"single",ticker:"BA",price:211.21,tags:"support \u00b7 politicians \u00b7 trump",why:"Top Trump tracker \u00b7 pol sells=2",athdip:null,support:53.0,catalyst:null,fund:null,pol:42.1,trump:100.0,rsi4h:null,sector:"",pe:74.9,peg:1.53,fcfy:3.4,roe:173.5},
-  {kind:"single",ticker:"CHWY",price:20.7,tags:"politicians",why:"Top politicians \u00b7 buys=4 sells=0",athdip:null,support:null,catalyst:null,fund:null,pol:62.5,trump:null,rsi4h:null,sector:"",pe:34.5,peg:0.47,fcfy:5.5,roe:63.8}
+  {kind:"single",ticker:"AFL",price:114.89,tags:"support \u00b7 catalyst \u00b7 fundamentals \u00b7 politicians",why:"Top support score today",athdip:null,support:86.8,catalyst:61.5,fund:66.0,pol:46.9,trump:null,rsi4h:null,sector:"",pe:12.4,peg:1.18,fcfy:8.9,roe:16.9},
+  {kind:"single",ticker:"ADM",price:85.85,tags:"catalyst",why:"Top catalyst score today",athdip:null,support:null,catalyst:77.1,fund:null,pol:null,trump:null,rsi4h:null,sector:"",pe:23.6,peg:1.05,fcfy:2.8,roe:7.6},
+  {kind:"single",ticker:"BA",price:211.21,tags:"support \u00b7 politicians \u00b7 trump",why:"Top Trump tracker \u00b7 pol sells=2",athdip:null,support:53.0,catalyst:null,fund:null,pol:42.1,trump:100.0,rsi4h:null,sector:"",pe:74.3,peg:1.53,fcfy:3.4,roe:173.5},
+  {kind:"single",ticker:"CHWY",price:20.75,tags:"politicians",why:"Top politicians \u00b7 buys=4 sells=0",athdip:null,support:null,catalyst:null,fund:null,pol:62.5,trump:null,rsi4h:null,sector:"",pe:34.6,peg:0.47,fcfy:5.5,roe:63.8}
 ];
 
 const ATHDIP = [
@@ -69,16 +67,16 @@ const TRUMP_SOURCES = [
 ];
 
 const TRUMP = [
-  {ticker:"BA",score:100.0,mentions:63,themes:"defense, tariffs_trade",sources:"news, truth, WH"},
-  {ticker:"INTC",score:81.59,mentions:76,themes:"company, govt_equity, semis_tech",sources:"news, truth, WH"},
-  {ticker:"AAPL",score:79.25,mentions:51,themes:"china, company, tariffs_trade",sources:"news, truth, WH"},
-  {ticker:"XLI",score:76.18,mentions:40,themes:"immigration_labor, tariffs_trade",sources:"news, truth, WH"},
-  {ticker:"CAT",score:76.18,mentions:40,themes:"immigration_labor, tariffs_trade",sources:"news, truth, WH"},
-  {ticker:"DE",score:76.18,mentions:40,themes:"immigration_labor, tariffs_trade",sources:"news, truth, WH"},
-  {ticker:"LMT",score:74.26,mentions:53,themes:"defense, govt_equity",sources:"news, truth, WH"},
-  {ticker:"GM",score:73.29,mentions:37,themes:"auto, energy_green, tariffs_trade",sources:"news, truth, WH"},
-  {ticker:"F",score:73.29,mentions:37,themes:"auto, energy_green, tariffs_trade",sources:"news, truth, WH"},
-  {ticker:"NKE",score:72.54,mentions:35,themes:"tariffs_trade",sources:"news, truth, WH"}
+  {ticker:"BA",score:100.0,mentions:66,themes:"defense, tariffs_trade",sources:"news, truth, WH"},
+  {ticker:"INTC",score:82.07,mentions:75,themes:"company, govt_equity, semis_tech",sources:"news, truth, WH"},
+  {ticker:"AAPL",score:80.93,mentions:52,themes:"china, company, tariffs_trade",sources:"news, truth, WH"},
+  {ticker:"LMT",score:77.44,mentions:55,themes:"defense, govt_equity",sources:"news, truth, WH"},
+  {ticker:"CAT",score:74.22,mentions:41,themes:"immigration_labor, tariffs_trade",sources:"news, truth, WH"},
+  {ticker:"DE",score:74.22,mentions:41,themes:"immigration_labor, tariffs_trade",sources:"news, truth, WH"},
+  {ticker:"XLI",score:74.22,mentions:41,themes:"immigration_labor, tariffs_trade",sources:"news, truth, WH"},
+  {ticker:"GM",score:71.58,mentions:38,themes:"auto, energy_green, tariffs_trade",sources:"news, truth, WH"},
+  {ticker:"F",score:71.58,mentions:38,themes:"auto, energy_green, tariffs_trade",sources:"news, truth, WH"},
+  {ticker:"NKE",score:70.83,mentions:36,themes:"tariffs_trade",sources:"news, truth, WH"}
 ];
 
 const SUPPORT = [
@@ -115,14 +113,11 @@ const POLITICIANS = [
 ];
 
 const FUNDAMENTALS = [
-  {ticker:"APP",sector:"Communication Serv",peg:0.69,fcfy:0.0307,roe:0.02,score:77.71},
-  {ticker:"AVGO",sector:"Technology",peg:0.35,fcfy:0.0177,roe:0.442,score:77.71},
-  {ticker:"AMAT",sector:"Technology",peg:0.9,fcfy:0.0083,roe:0.411,score:74.86},
-  {ticker:"ADI",sector:"Technology",peg:0.54,fcfy:0.0235,roe:0.122,score:73.08},
-  {ticker:"LLY",sector:"Healthcare",peg:1.11,fcfy:0.011,roe:1.023,score:72.04},
-  {ticker:"BRK-B",sector:"Financial Services",peg:10.06,fcfy:0.067,roe:0.121,score:70.1},
-  {ticker:"AMZN",sector:"Consumer Cyclical",peg:1.51,fcfy:0.0012,roe:0.306,score:69.74},
-  {ticker:"AXP",sector:"Financial Services",peg:1.32,fcfy:null,roe:0.344,score:66.75}
+  {ticker:"NVDA",sector:"Technology",peg:0.58,fcfy:0.0077,roe:1.172,score:83.38},
+  {ticker:"MSFT",sector:"Technology",peg:1.6,fcfy:0.0045,roe:0.34,score:73.47},
+  {ticker:"XOM",sector:"Energy",peg:1.38,fcfy:0.0306,roe:0.126,score:71.28},
+  {ticker:"AAPL",sector:"Technology",peg:2.49,fcfy:0.0234,roe:1.488,score:69.11},
+  {ticker:"JPM",sector:"Financial Services",peg:1.64,fcfy:null,roe:0.178,score:67.82}
 ];
 
 function biasTone(bias: string): "success" | "warning" | "danger" | "info" | "neutral" {
@@ -191,7 +186,7 @@ export default function ScreenDashboard() {
       "Athdip-mode composite score (higher means deeper four-hour relative strength index and a fresher all-time-high setup)",
     ),
     th("Sup", "Support-mode composite score"),
-    th("Cat", "Catalyst-mode composite score"),
+    th("Cat", "Catalyst-mode composite score (Yahoo news ± X-quoting headlines ± Polymarket social)"),
     th("Fund", "Fundamentals-mode composite score"),
     th(
       "Pol",
@@ -320,7 +315,16 @@ export default function ScreenDashboard() {
           <Pill tone="success">ATH setup + 4h RSI dip</Pill>
         </Row>
         <Table
-          headers={["Ticker","Price","ATH","%ATH","Days","RSI 4h","RSI D","Score"]}
+          headers={[
+            th("Ticker", "Stock ticker symbol"),
+            th("Price", "Latest screen price (usually prior session close or last available quote)"),
+            th("ATH", "Multi-year all-time high used for the athdip setup"),
+            th("%ATH", "Percent below the all-time high (more negative means a deeper pullback)"),
+            th("Days", "Trading days since the multi-year all-time high"),
+            th("RSI 4h", "Minimum four-hour relative strength index over the lookback window (trigger when at or below about 31)"),
+            th("RSI D", "Daily fourteen-period relative strength index"),
+            th("Score", "Athdip-mode composite score"),
+          ]}
           columnAlign={["left","right","right","right","right","right","right","right"]}
           rows={ATHDIP.map((r) => [
             r.ticker,
@@ -354,7 +358,12 @@ export default function ScreenDashboard() {
           height={200}
         />
         <Table
-          headers={["Ticker","Score","Mentions","Themes"]}
+          headers={[
+            th("Ticker", "Stock ticker symbol"),
+            th("Score", "Trump-tracker theme score from Truth Social, news, and White House feeds"),
+            th("Mentions", "Count of matched posts or headlines mapped to this ticker"),
+            th("Themes", "Policy or company themes that triggered the mapping"),
+          ]}
           columnAlign={["left","right","right","left"]}
           rows={TRUMP.map((r) => [r.ticker, dash(r.score), String(r.mentions), r.themes])}
           rowTone={TRUMP.map((r) => trumpTone(r.score))}
@@ -371,7 +380,14 @@ export default function ScreenDashboard() {
           height={200}
         />
         <Table
-          headers={["Mode","Return %","Excess %","Win %","Max DD %","Avg #"]}
+          headers={[
+            th("Mode", "Backtest mode or strategy label"),
+            th("Return %", "Year-to-date strategy return in percent"),
+            th("Excess %", "Strategy return minus SPY over the same window"),
+            th("Win %", "Share of rebalance periods with a positive return"),
+            th("Max DD %", "Maximum peak-to-trough drawdown in percent"),
+            th("Avg #", "Average number of holdings per rebalance"),
+          ]}
           columnAlign={["left","right","right","right","right","right"]}
           rows={BACKTEST_YTD.map((r) => [
             r.mode,
@@ -389,7 +405,14 @@ export default function ScreenDashboard() {
       <Stack gap={10}>
         <H2>Politicians</H2>
         <Table
-          headers={["Ticker","Score","Buys","Sells","Filed after","Politicians"]}
+          headers={[
+            th("Ticker", "Stock ticker symbol"),
+            th("Score", "Politicians-mode score from freshness-weighted United States Congress trading flow"),
+            th("Buys", "Count of buy-side disclosures in the lookback"),
+            th("Sells", "Count of sell-side disclosures in the lookback"),
+            th("Filed after", "Average days between trade and filing (lower is fresher)"),
+            th("Politicians", "Lawmakers associated with the matched trades"),
+          ]}
           columnAlign={["left","right","right","right","right","left"]}
           rows={POLITICIANS.map((r) => [
             r.ticker,
@@ -408,7 +431,18 @@ export default function ScreenDashboard() {
       <Stack gap={10}>
         <H2>Support</H2>
         <Table
-          headers={["Ticker","Price","RSI","Bias","Prox","%52wH","PEG","FCF","ROE","Score"]}
+          headers={[
+            th("Ticker", "Stock ticker symbol"),
+            th("Price", "Latest screen price"),
+            th("RSI", "Daily fourteen-period relative strength index"),
+            th("Bias", "Whether RSI is bending toward oversold or overbought (arrow shows slope)"),
+            th("Prox", "Proximity to support versus resistance (lower means closer to support)"),
+            th("%52wH", "Percent from the fifty-two-week high"),
+            th("PEG", "Price/earnings-to-growth ratio"),
+            th("FCF", "Free-cash-flow yield"),
+            th("ROE", "Return on equity"),
+            th("Score", "Support-mode composite score"),
+          ]}
           columnAlign={["left","right","right","left","right","right","right","right","right","right"]}
           rows={SUPPORT.map((r) => [
             r.ticker,
@@ -431,7 +465,16 @@ export default function ScreenDashboard() {
       <Stack gap={10}>
         <H2>Catalyst</H2>
         <Table
-          headers={["Ticker","Price","RSI","Bias","Day %","Vol×","%52wH","Score"]}
+          headers={[
+            th("Ticker", "Stock ticker symbol"),
+            th("Price", "Latest screen price"),
+            th("RSI", "Daily fourteen-period relative strength index"),
+            th("Bias", "Whether RSI is bending toward oversold or overbought (arrow shows slope)"),
+            th("Day %", "One-day percent price change"),
+            th("Vol×", "Volume versus recent average (above about 1.4 often counts as a catalyst signal)"),
+            th("%52wH", "Percent from the fifty-two-week high"),
+            th("Score", "Catalyst-mode composite (includes Yahoo news ± X-quoting headlines ± Polymarket social)"),
+          ]}
           columnAlign={["left","right","right","left","right","right","right","right"]}
           rows={CATALYST.map((r) => [
             r.ticker,
@@ -452,7 +495,14 @@ export default function ScreenDashboard() {
       <Stack gap={10}>
         <H2>Fundamentals</H2>
         <Table
-          headers={["Ticker","Sector","PEG","FCF yld","ROE","Score"]}
+          headers={[
+            th("Ticker", "Stock ticker symbol"),
+            th("Sector", "Company sector classification from Yahoo Finance"),
+            th("PEG", "Price/earnings-to-growth ratio (lower often means cheaper relative to expected growth)"),
+            th("FCF yld", "Free-cash-flow yield"),
+            th("ROE", "Return on equity"),
+            th("Score", "Fundamentals-mode composite score"),
+          ]}
           columnAlign={["left","left","right","right","right","right"]}
           rows={FUNDAMENTALS.map((r) => [
             r.ticker,

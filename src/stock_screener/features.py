@@ -74,6 +74,171 @@ def compute_rsi(close: pd.Series, period: int = 14) -> float:
     return float(series.iloc[-1])
 
 
+def min_rsi_in_lookback(
+    close: pd.Series,
+    *,
+    as_of: pd.Timestamp | None = None,
+    lookback_days: int = 5,
+    period: int = 14,
+) -> float | None:
+    """Minimum RSI over bars whose session date falls in ``[as_of-lookback, as_of]``."""
+    detail = min_rsi_lookback_detail(
+        close, as_of=as_of, lookback_days=lookback_days, period=period
+    )
+    return None if detail is None else detail[0]
+
+
+def min_rsi_lookback_detail(
+    close: pd.Series,
+    *,
+    as_of: pd.Timestamp | None = None,
+    lookback_days: int = 5,
+    period: int = 14,
+) -> tuple[float, object] | None:
+    """Return ``(min_rsi, trigger_session_date)`` in the lookback window.
+
+    ``trigger_session_date`` is the calendar date of the 4h bar that printed the
+    minimum RSI (earliest bar on ties).
+    """
+    c = close.dropna()
+    if c.empty or lookback_days < 0:
+        return None
+    rsi = compute_rsi_series(c, period=period)
+    if rsi.empty or len(c) < period + 2:
+        return None
+
+    def _session_date(ts) -> object:
+        t = pd.Timestamp(ts)
+        if t.tzinfo is not None:
+            return t.tz_convert("America/New_York").date()
+        return t.date()
+
+    if as_of is None:
+        end_date = _session_date(rsi.index[-1])
+    else:
+        a = pd.Timestamp(as_of)
+        end_date = a.tz_convert("America/New_York").date() if a.tzinfo else a.date()
+    start_date = pd.Timestamp(end_date) - pd.Timedelta(days=lookback_days)
+    start_d = start_date.date()
+
+    best: tuple[float, object, object] | None = None  # rsi, date, ts
+    for ts, val in rsi.items():
+        if not pd.notna(val):
+            continue
+        d = _session_date(ts)
+        if not (start_d <= d <= end_date):
+            continue
+        v = float(val)
+        if best is None or v < best[0] or (v == best[0] and ts < best[2]):
+            best = (v, d, ts)
+    if best is None:
+        return None
+    return best[0], best[1]
+
+def all_time_high(high: pd.Series) -> float | None:
+    """Max high over available history (ATH proxy for downloaded window)."""
+    h = high.dropna()
+    if h.empty:
+        return None
+    return float(h.max())
+
+
+def pct_from_high(price: float, high: float) -> float:
+    if high <= 0:
+        return 0.0
+    return ((price / high) - 1.0) * 100.0
+
+
+def multi_year_ath_breakout(
+    high: pd.Series,
+    close: pd.Series,
+    *,
+    window: int = 21,
+) -> tuple[bool, float | None, float | None, int | None]:
+    """Fresh multi-year ATH breakout check (same-bar setup).
+
+    Gates:
+      • close > prior_high (max high excluding last ``window`` sessions)
+      • recent_max > prior_high (a new high was logged inside that window)
+
+    Returns ``(ok, prior_high, recent_max, days_since_ath)``.
+    ``days_since_ath`` is trading sessions since the absolute high in the series.
+    """
+    if window < 1:
+        return False, None, None, None
+    h = high.dropna()
+    c = close.dropna()
+    if h.empty or c.empty:
+        return False, None, None, None
+    idx = h.index.intersection(c.index)
+    if len(idx) < window + 2:
+        return False, None, None, None
+    h = h.loc[idx]
+    c = c.loc[idx]
+    prior = h.iloc[:-window]
+    recent = h.iloc[-window:]
+    if prior.empty or recent.empty:
+        return False, None, None, None
+    prior_high = float(prior.max())
+    recent_max = float(recent.max())
+    if prior_high <= 0:
+        return False, None, None, None
+    price = float(c.iloc[-1])
+    ath_pos = int(h.to_numpy().argmax())
+    days_since_ath = len(h) - 1 - ath_pos
+    ok = price > prior_high and recent_max > prior_high
+    return ok, prior_high, recent_max, days_since_ath
+
+
+def recent_multi_year_ath_setup(
+    high: pd.Series,
+    close: pd.Series,
+    *,
+    fresh_window: int = 21,
+    max_days_since_ath: int = 63,
+) -> tuple[bool, float | None, float | None, int | None]:
+    """Setup for athdip: multi-year ATH was printed recently (then wait for RSI dip).
+
+    Unlike ``multi_year_ath_breakout``, this does **not** require price still above
+    the prior high — only that the absolute high in the series:
+      • occurred within ``max_days_since_ath`` trading sessions, and
+      • was a multi-year break at the time it printed (fresh_window logic on the
+        slice ending at the ATH bar).
+
+    Returns ``(ok, prior_high_at_ath, ath_high, days_since_ath)``.
+    """
+    if fresh_window < 1 or max_days_since_ath < 0:
+        return False, None, None, None
+    h = high.dropna()
+    c = close.dropna()
+    if h.empty or c.empty:
+        return False, None, None, None
+    idx = h.index.intersection(c.index)
+    if len(idx) < fresh_window + 2:
+        return False, None, None, None
+    h = h.loc[idx]
+    c = c.loc[idx]
+    ath_pos = int(h.to_numpy().argmax())
+    days_since_ath = len(h) - 1 - ath_pos
+    ath_high = float(h.iloc[ath_pos])
+    if days_since_ath > max_days_since_ath:
+        return False, None, ath_high, days_since_ath
+    # Evaluate breakout on history ending at the ATH bar (inclusive)
+    h_at = h.iloc[: ath_pos + 1]
+    c_at = c.iloc[: ath_pos + 1]
+    ok_break, prior_high, _, _ = multi_year_ath_breakout(
+        h_at, c_at, window=fresh_window
+    )
+    if not ok_break:
+        # Short listings: treat series ATH as setup if we have any prior range
+        if prior_high is None and len(h_at) >= fresh_window + 2:
+            prior_high = float(h_at.iloc[:-fresh_window].max())
+            ok_break = ath_high > prior_high
+        else:
+            return False, prior_high, ath_high, days_since_ath
+    return True, prior_high, ath_high, days_since_ath
+
+
 def rsi_bias_label(rsi: float, slope: float, *, slope_threshold: float = 2.0) -> str:
     """Classify RSI level and short-term bend toward oversold or overbought."""
     if rsi <= 30:

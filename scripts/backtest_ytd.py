@@ -12,6 +12,7 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -24,9 +25,21 @@ from stock_screener.data.market_cycle import MarketCycle, assess_market_cycle
 from stock_screener.data.news import NewsAssessment
 from stock_screener.data.reddit import RedditAssessment
 from stock_screener.data.sentiment import MarketSentiment, RegimeParams, _regime_for
+from stock_screener.data.trump_lexicon import all_tracked_tickers
 from stock_screener.data.universe import resolve_universe
-from stock_screener.features import compute_technicals
-from stock_screener.scoring import build_catalyst_row, build_support_row
+from stock_screener.data.prices import download_intraday
+from stock_screener.features import (
+    all_time_high,
+    compute_technicals,
+    min_rsi_lookback_detail,
+    pct_from_high,
+    recent_multi_year_ath_setup,
+)
+from stock_screener.scoring import (
+    athdip_composite,
+    build_catalyst_row,
+    build_support_row,
+)
 
 
 NEUTRAL_NEWS = NewsAssessment(50.0, False, 0, "", "neutral (backtest)")
@@ -197,6 +210,7 @@ class BacktestResult:
     avg_holdings: float
     win_rate_pct: float
     max_drawdown_pct: float
+    signal_rows: list[dict] | None = None
 
 
 def market_at(vix: float | None, cfg: ScreenerConfig) -> MarketSentiment:
@@ -239,12 +253,44 @@ def download_panel(tickers: list[str], start: str, end: str) -> pd.DataFrame:
 
 
 def _col(frame: pd.DataFrame, field: str, ticker: str) -> pd.Series:
+    if frame is None or frame.empty:
+        return pd.Series(dtype=float)
     if (field, ticker) in frame.columns:
         return frame[(field, ticker)].dropna()
     if (ticker, field) in frame.columns:
         return frame[(ticker, field)].dropna()
     return pd.Series(dtype=float)
 
+
+def _rsi_4h_asof(
+    close_4h: pd.Series,
+    as_of: pd.Timestamp,
+    *,
+    lookback_days: int = 5,
+) -> float | None:
+    """Min point-in-time 4h RSI over ``lookback_days`` ending on ``as_of``."""
+    detail = min_rsi_lookback_detail(
+        close_4h,
+        as_of=as_of,
+        lookback_days=lookback_days,
+        period=14,
+    )
+    return None if detail is None else detail[0]
+
+
+def _rsi_4h_trigger(
+    close_4h: pd.Series,
+    as_of: pd.Timestamp,
+    *,
+    lookback_days: int = 5,
+) -> tuple[float, object] | None:
+    """``(min_rsi, trigger_date)`` in the lookback window ending on ``as_of``."""
+    return min_rsi_lookback_detail(
+        close_4h,
+        as_of=as_of,
+        lookback_days=lookback_days,
+        period=14,
+    )
 
 def fetch_fund_map(tickers: list[str]) -> dict[str, FundamentalsSnapshot]:
     out: dict[str, FundamentalsSnapshot] = {}
@@ -271,6 +317,7 @@ def pick_tickers(
     top_n: int,
     fund_map: dict[str, FundamentalsSnapshot] | None = None,
     cycle: MarketCycle | None = None,
+    bars_4h: pd.DataFrame | None = None,
 ) -> list[str]:
     picks: list[tuple[str, float]] = []
     min_score = cycle.min_value_score if cycle else 55.0
@@ -303,6 +350,96 @@ def pick_tickers(
                 picks.append((ticker, vs.score))
             continue
 
+        if mode == "trump":
+            # Proxy: lexicon universe + 10d momentum / vol spike (no historical Truth posts)
+            if len(close) < 12:
+                continue
+            if tech.rsi14 is not None and tech.rsi14 >= 80:
+                continue
+            ret10 = float(close.iloc[-1] / close.iloc[-11] - 1.0) * 100.0
+            vol_boost = min(2.0, tech.volume_ratio) if tech.volume_ratio else 1.0
+            score = ret10 * vol_boost
+            if score <= 0:
+                continue
+            picks.append((ticker, score))
+            continue
+
+        if mode == "athdip":
+            # Setup: recent multi-year ATH; fire only on actual 4h RSI trigger day
+            ath = all_time_high(high)
+            if ath is None:
+                continue
+            pct_ath = pct_from_high(tech.price, ath)
+            if cfg.athdip_require_uptrend:
+                if cfg.athdip_require_sma50:
+                    if not (tech.above_sma_fast and tech.above_sma_slow):
+                        continue
+                elif not tech.above_sma_slow:
+                    continue
+            if cfg.athdip_drop_death_cross and tech.death_cross:
+                continue
+            if (
+                cfg.athdip_require_near_ath_pct
+                and pct_ath < cfg.athdip_max_pct_from_ath
+            ):
+                continue
+            days_since: int | None = None
+            if cfg.athdip_require_multi_year_break:
+                ok_setup, _, ath_setup, days_since = recent_multi_year_ath_setup(
+                    high,
+                    close,
+                    fresh_window=cfg.athdip_fresh_high_days,
+                    max_days_since_ath=cfg.athdip_max_days_since_ath,
+                )
+                if not ok_setup:
+                    continue
+                if ath_setup is not None:
+                    ath = ath_setup
+                    pct_ath = pct_from_high(tech.price, ath)
+            trig = _rsi_4h_trigger(
+                _col(bars_4h, "Close", ticker)
+                if bars_4h is not None
+                else pd.Series(dtype=float),
+                as_of,
+                lookback_days=cfg.athdip_rsi_lookback_days,
+            )
+            if trig is None:
+                continue
+            rsi_4h, trigger_date = trig
+            asof_date = (
+                pd.Timestamp(as_of).tz_convert("America/New_York").date()
+                if getattr(as_of, "tzinfo", None)
+                else pd.Timestamp(as_of).date()
+            )
+            # Only signal on the calendar day the lookback-min 4h RSI printed
+            if trigger_date != asof_date:
+                continue
+            if rsi_4h > cfg.athdip_rsi_4h_max:
+                continue
+            score = athdip_composite(
+                tech,
+                pct_from_ath=pct_ath,
+                rsi_4h=rsi_4h,
+                config=cfg,
+                days_since_ath=days_since,
+            )
+            picks.append(
+                (
+                    ticker,
+                    score,
+                    {
+                        "trigger_date": str(trigger_date),
+                        "price": round(tech.price, 2),
+                        "ath": round(float(ath), 2),
+                        "pct_from_ath": round(pct_ath, 2),
+                        "days_since_ath": days_since,
+                        "rsi_4h": round(rsi_4h, 2),
+                        "score": round(score, 2),
+                    },
+                )
+            )
+            continue
+
         if mode == "support":
             row = build_support_row(
                 ticker, tech, market, NEUTRAL_NEWS, NEUTRAL_EARN, NEUTRAL_REDDIT, None, cfg
@@ -315,7 +452,21 @@ def pick_tickers(
             picks.append((ticker, row.composite))
 
     picks.sort(key=lambda x: x[1], reverse=True)
-    return [t for t, _ in picks[:top_n]]
+    top = picks[:top_n]
+    if mode == "athdip":
+        # Return (tickers, signal detail rows)
+        tickers_out = [p[0] for p in top]
+        details = []
+        asof_s = str(
+            pd.Timestamp(as_of).date()
+            if not getattr(as_of, "tzinfo", None)
+            else pd.Timestamp(as_of).tz_convert("America/New_York").date()
+        )
+        for p in top:
+            meta = p[2] if len(p) > 2 else {}
+            details.append({"date": asof_s, "ticker": p[0], **meta})
+        return tickers_out, details
+    return [t for t, _ in top], None
 
 
 def run_mode_backtest(
@@ -328,6 +479,7 @@ def run_mode_backtest(
     top_n: int,
     fund_map: dict[str, FundamentalsSnapshot] | None = None,
     cycle: MarketCycle | None = None,
+    bars_4h: pd.DataFrame | None = None,
 ) -> BacktestResult:
     spy = _col(prices, "Close", "SPY").dropna()
     trading_days = spy.index[spy.index >= year_start]
@@ -341,12 +493,20 @@ def run_mode_backtest(
     curve: list[tuple[pd.Timestamp, float]] = []
     period_returns: list[float] = []
     holding_counts: list[int] = []
-    rebalance_dates = list(weeks)
+    signal_rows: list[dict] = []
+
+    # Athdip: daily rebalance on actual 4h RSI trigger days; others stay weekly
+    if mode == "athdip":
+        rebalance_dates = list(trading_days)
+        period_label = "day"
+    else:
+        rebalance_dates = list(weeks)
+        period_label = "week"
 
     for i, reb_date in enumerate(rebalance_dates):
         vix_val = float(vix.loc[:reb_date].iloc[-1]) if not vix.loc[:reb_date].empty else None
         market = market_at(vix_val, cfg)
-        holdings = pick_tickers(
+        picked = pick_tickers(
             prices,
             reb_date,
             universe,
@@ -356,7 +516,11 @@ def run_mode_backtest(
             effective_top,
             fund_map=fund_map,
             cycle=cycle if mode == "value" else None,
+            bars_4h=bars_4h if mode == "athdip" else None,
         )
+        holdings, details = picked
+        if details:
+            signal_rows.extend(details)
         holding_counts.append(len(holdings))
         if i + 1 >= len(rebalance_dates):
             break
@@ -386,6 +550,7 @@ def run_mode_backtest(
     wins = sum(1 for r in period_returns if r > 0)
     win_rate = (wins / len(period_returns) * 100.0) if period_returns else 0.0
     avg_h = float(np.mean(holding_counts)) if holding_counts else 0.0
+    _ = period_label  # documented in caller print
     return BacktestResult(
         mode=mode,
         ytd_return_pct=round(strat_ytd, 2),
@@ -395,8 +560,8 @@ def run_mode_backtest(
         avg_holdings=round(avg_h, 1),
         win_rate_pct=round(win_rate, 1),
         max_drawdown_pct=round(dd, 2),
+        signal_rows=signal_rows or None,
     )
-
 
 def print_sketch(cycle: MarketCycle) -> None:
     print(
@@ -417,18 +582,38 @@ Market-cycle overlay (current)
   • {cycle.note}
   • min value score={cycle.min_value_score:.0f} · top_n scale={cycle.top_n_scale:.2f}
 
+=== TRUMP MODE SKETCH (backtest-only proxy) ===
+  • Universe = Trump lexicon tickers (companies + policy theme proxies)
+  • Weekly top-N by 10d return × volume ratio; skip RSI≥80
+  • NOT driven by historical Truth/X posts (RSS only covers ~days)
+  • Treat as theme-momentum proxy, not live tracker fidelity
+
+=== ATHDIP MODE SKETCH ===
+  • Setup: multi-year ATH break (21d fresh high at ATH time), watch ≤63 sessions
+  • Trigger: fire on the actual calendar day the lookback-min 4h RSI prints (≤ max)
+  • Daily rebalance (not Friday-only); buy at trigger-day close
+  • Rank by oversold depth + ATH proximity + ATH freshness
+
 Caveats
   • Yahoo fundamentals CURRENT (look-ahead)
   • CAPE/Buffett are spot readings, not full historical series
   • Profit margins still snapshot (not multi-year trend yet)
+  • Athdip 4h history capped by Yahoo (~730d); older weeks may lack bars
 """
     )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Backtest support / catalyst / value sketch")
+    parser = argparse.ArgumentParser(
+        description="Backtest support / catalyst / value / trump / athdip"
+    )
     parser.add_argument("--universe", default="sp500", choices=("sp500", "us"))
-    parser.add_argument("--limit", type=int, default=80)
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=80,
+        help="Cap universe size (0 = all constituents)",
+    )
     parser.add_argument("--top", type=int, default=10)
     parser.add_argument("--year", type=int, default=None, help="Calendar year start (Jan 1)")
     parser.add_argument(
@@ -439,8 +624,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--modes",
-        default="support,catalyst,value",
-        help="Comma-separated: support,catalyst,value",
+        default="support,catalyst,value,trump,athdip",
+        help="Comma-separated: support,catalyst,value,trump,athdip",
     )
     args = parser.parse_args()
 
@@ -449,14 +634,29 @@ def main() -> None:
 
     cfg = ScreenerConfig(
         universe=args.universe,
-        max_tickers=args.limit,
+        max_tickers=None if args.limit == 0 else args.limit,
         require_above_sma_slow=False,
         enable_reddit=False,
         enable_grok=False,
         enable_fundamentals=False,
         enable_politicians=False,
+        enable_trump=False,
     )
-    universe = resolve_universe(limit=args.limit, universe=args.universe)
+    base_universe = resolve_universe(
+        limit=None if args.limit == 0 else args.limit,
+        universe=args.universe,
+    )
+    trump_universe = all_tracked_tickers()
+    modes = [m.strip() for m in args.modes.split(",") if m.strip()]
+
+    # Download union so trump proxies (ETFs etc.) are available even if outside S&P slice
+    download_tickers = list(base_universe)
+    if "trump" in modes:
+        seen = set(download_tickers)
+        for t in trump_universe:
+            if t not in seen:
+                seen.add(t)
+                download_tickers.append(t)
 
     today = datetime.now(timezone.utc).date()
     if args.months is not None:
@@ -467,45 +667,107 @@ def main() -> None:
         period_start = pd.Timestamp(f"{year}-01-01")
         period_label = f"YTD {year} ({period_start.date()} → {today})"
 
-    warmup_start = (period_start - pd.Timedelta(days=400)).strftime("%Y-%m-%d")
+    warmup_days = 400
+    if "athdip" in modes:
+        warmup_days = max(warmup_days, 1825)
+    warmup_start = (period_start - pd.Timedelta(days=warmup_days)).strftime("%Y-%m-%d")
     end = (today + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
 
-    print(f"Downloading {len(universe)} tickers + SPY + VIX ({warmup_start} → {end})…")
-    prices = download_panel(universe, warmup_start, end)
+    print(f"Downloading {len(download_tickers)} tickers + SPY + VIX ({warmup_start} → {end})…")
+    prices = download_panel(download_tickers, warmup_start, end)
     vix = _col(prices, "Close", "^VIX")
 
-    modes = [m.strip() for m in args.modes.split(",") if m.strip()]
+    bars_4h: pd.DataFrame | None = None
+    if "athdip" in modes:
+        print(
+            f"Downloading 4h bars for athdip ({len(base_universe)} tickers, "
+            f"period={cfg.athdip_intraday_period})…"
+        )
+        bars_4h = download_intraday(
+            base_universe,
+            interval="4h",
+            period=cfg.athdip_intraday_period,
+            chunk_size=min(40, cfg.price_chunk_size),
+        )
+        print(f"4h panel columns: {0 if bars_4h is None or bars_4h.empty else bars_4h.shape[1]}")
+
     need_funds = "value" in modes
     fund_map: dict[str, FundamentalsSnapshot] = {}
     if need_funds:
-        print(f"Fetching Yahoo fundamentals for value sketch ({len(universe)} tickers)…")
-        fund_map = fetch_fund_map(universe)
+        print(f"Fetching Yahoo fundamentals for value sketch ({len(base_universe)} tickers)…")
+        fund_map = fetch_fund_map(base_universe)
         print(f"Fundamentals snapshots: {len(fund_map)}")
 
     print(f"\n=== BACKTEST — {period_label} ===")
-    print(f"Universe: {args.universe} (limit {args.limit}) · weekly · top {args.top} EW")
+    if "athdip" in modes and len(modes) == 1:
+        print(
+            f"Universe: {args.universe} (limit {args.limit}) · "
+            f"daily actual-trigger · top {args.top} EW"
+        )
+    else:
+        print(
+            f"Universe: {args.universe} (limit {args.limit}) · weekly · top {args.top} EW"
+        )
+    if "trump" in modes:
+        print(f"Trump proxy universe: {len(trump_universe)} lexicon tickers")
+    if "athdip" in modes:
+        print(
+            "Athdip: signal only on actual 4h RSI trigger day "
+            f"(lookback {cfg.athdip_rsi_lookback_days}d, RSI≤{cfg.athdip_rsi_4h_max:.0f}; "
+            f"ATH age ≤{cfg.athdip_max_days_since_ath}d)"
+        )
     print(f"Modes: {', '.join(modes)}\n")
 
     results: list[BacktestResult] = []
     for mode in modes:
+        uni = trump_universe if mode == "trump" else base_universe
         res = run_mode_backtest(
             prices,
             vix,
-            universe,
+            uni,
             mode,
             cfg,
             period_start,
             args.top,
             fund_map=fund_map if mode == "value" else None,
             cycle=cycle if mode == "value" else None,
+            bars_4h=bars_4h if mode == "athdip" else None,
         )
         results.append(res)
+        if mode == "athdip" and res.signal_rows:
+            out_path = Path("output/athdip_backtest_signals.csv")
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            sig_df = pd.DataFrame(res.signal_rows)
+            # Prefer trigger_date as the signal date column
+            if "trigger_date" in sig_df.columns:
+                sig_df = sig_df.rename(columns={"date": "asof_date"})
+            sig_df.to_csv(out_path, index=False)
+            print(f"Athdip signals ({len(sig_df)} rows) → {out_path}")
+            # Show latest month sample
+            if "trigger_date" in sig_df.columns:
+                latest = sig_df.sort_values("trigger_date")
+                print("\nRecent athdip trigger days (last 15 signals):")
+                cols = [
+                    c
+                    for c in (
+                        "trigger_date",
+                        "ticker",
+                        "price",
+                        "rsi_4h",
+                        "pct_from_ath",
+                        "days_since_ath",
+                        "score",
+                    )
+                    if c in latest.columns
+                ]
+                print(latest.tail(15)[cols].to_string(index=False))
 
+    win_hdr = "Win%" if any(m == "athdip" for m in modes) else "WinWk%"
     header = (
         f"{'Mode':10} {'Return%':>8} {'SPY%':>8} {'Excess':>8} "
-        f"{'WinWk%':>8} {'MaxDD%':>8} {'Avg#':>6}"
+        f"{win_hdr:>8} {'MaxDD%':>8} {'Avg#':>6}"
     )
-    print(header)
+    print("\n" + header)
     print("-" * len(header))
     for r in results:
         print(
@@ -517,7 +779,9 @@ def main() -> None:
     if results:
         best = max(results, key=lambda x: x.excess_pct)
         print(f"\nBest excess vs SPY (this run): {best.mode} ({best.excess_pct:+.2f}%)")
-    print("Live screener logic NOT replaced — value remains a sketch until you approve.")
+    print(
+        "Live screener unchanged — value / trump / athdip backtest sketches disclosed above."
+    )
 
 
 if __name__ == "__main__":

@@ -51,6 +51,12 @@ class ScreenRow:
     pass_filters: bool
     filter_reason: str
     why: str
+    # Athdip extras (defaults keep other modes unchanged)
+    rsi_4h: float = 50.0
+    ath_high: float = 0.0
+    pct_from_ath: float = 0.0
+    prior_high: float = 0.0
+    days_since_ath: int = -1
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -352,6 +358,176 @@ def build_catalyst_row(
         reason,
         why,
     )
+
+
+def apply_athdip_filters(
+    tech: TechnicalFeatures,
+    *,
+    pct_from_ath: float,
+    rsi_4h: float,
+    config: ScreenerConfig,
+    pct_from_ema200_4h: float | None = None,
+    prior_high: float | None = None,
+    recent_max: float | None = None,
+    days_since_ath: int | None = None,
+    setup_ok: bool | None = None,
+) -> tuple[bool, str]:
+    """Sequential athdip: recent multi-year ATH setup, then 4h RSI ≤ max."""
+    if tech.price < config.min_price:
+        return False, "price below min"
+    if tech.avg_dollar_volume < config.min_avg_dollar_volume:
+        return False, "illiquid"
+    if config.athdip_require_uptrend:
+        if config.athdip_require_sma50:
+            if not (tech.above_sma_fast and tech.above_sma_slow):
+                return False, "not uptrend (need above SMA50 & SMA200)"
+        elif not tech.above_sma_slow:
+            return False, "not uptrend (need above SMA200)"
+    if config.athdip_drop_death_cross and tech.death_cross:
+        return False, "death cross"
+    if config.athdip_require_multi_year_break:
+        if setup_ok is False:
+            return False, "no recent multi-year ATH setup"
+        if days_since_ath is None:
+            return False, "insufficient history for multi-year high"
+        if days_since_ath > config.athdip_max_days_since_ath:
+            return False, (
+                f"ATH too old ({days_since_ath}d > "
+                f"{config.athdip_max_days_since_ath}d watch window)"
+            )
+    if (
+        config.athdip_require_near_ath_pct
+        and pct_from_ath < config.athdip_max_pct_from_ath
+    ):
+        return False, f"too far from ATH ({pct_from_ath:.1f}% < {config.athdip_max_pct_from_ath:.0f}%)"
+    # Trigger: 4h RSI ≤ max (default 30; charts often kiss 30)
+    if rsi_4h > config.athdip_rsi_4h_max:
+        return False, (
+            f"4h RSI {rsi_4h:.1f} not ≤ {config.athdip_rsi_4h_max:.0f}"
+        )
+    if (
+        config.athdip_use_4h_ema200
+        and pct_from_ema200_4h is not None
+        and pct_from_ema200_4h < config.athdip_ema200_max_pct
+    ):
+        return False, (
+            f"too far below 4h EMA200 ({pct_from_ema200_4h:.1f}% < "
+            f"{config.athdip_ema200_max_pct:.0f}%)"
+        )
+    return True, ""
+
+
+def athdip_composite(
+    tech: TechnicalFeatures,
+    *,
+    pct_from_ath: float,
+    rsi_4h: float,
+    config: ScreenerConfig,
+    pct_from_ema200_4h: float | None = None,
+    days_since_ath: int | None = None,
+) -> float:
+    max_rsi = config.athdip_rsi_4h_max
+    rsi_score = (
+        max(0.0, min(100.0, 100.0 * (1.0 - rsi_4h / max_rsi))) if max_rsi > 0 else 50.0
+    )
+    span = abs(config.athdip_max_pct_from_ath) or 20.0
+    ath_score = max(0.0, min(100.0, 100.0 * (1.0 + pct_from_ath / span)))
+    # Prefer fresher ATH within the watch window
+    age_score = 70.0
+    if days_since_ath is not None and config.athdip_max_days_since_ath > 0:
+        age_score = max(
+            30.0,
+            min(
+                100.0,
+                100.0
+                * (1.0 - days_since_ath / float(config.athdip_max_days_since_ath)),
+            ),
+        )
+    return round(0.55 * rsi_score + 0.25 * ath_score + 0.20 * age_score, 2)
+def build_athdip_row(
+    ticker: str,
+    tech: TechnicalFeatures,
+    market: MarketSentiment,
+    *,
+    ath_high: float,
+    pct_from_ath: float,
+    rsi_4h: float,
+    config: ScreenerConfig,
+    pct_from_ema200_4h: float | None = None,
+    prior_high: float | None = None,
+    recent_max: float | None = None,
+    days_since_ath: int | None = None,
+    setup_ok: bool | None = None,
+) -> ScreenRow:
+    from stock_screener.data.earnings import EarningsAssessment
+    from stock_screener.data.news import NewsAssessment
+    from stock_screener.data.reddit import RedditAssessment
+
+    news = NewsAssessment(50.0, False, 0, "", "n/a")
+    earn = EarningsAssessment(None, 50.0, "n/a", 50.0, "n/a")
+    reddit = RedditAssessment(50.0, 0, "n/a")
+    ok, reason = apply_athdip_filters(
+        tech,
+        pct_from_ath=pct_from_ath,
+        rsi_4h=rsi_4h,
+        config=config,
+        pct_from_ema200_4h=pct_from_ema200_4h,
+        prior_high=prior_high,
+        recent_max=recent_max,
+        days_since_ath=days_since_ath,
+        setup_ok=setup_ok,
+    )
+    score = (
+        athdip_composite(
+            tech,
+            pct_from_ath=pct_from_ath,
+            rsi_4h=rsi_4h,
+            config=config,
+            pct_from_ema200_4h=pct_from_ema200_4h,
+            days_since_ath=days_since_ath,
+        )
+        if ok
+        else float("nan")
+    )
+    ema_bit = (
+        f"4hEMA200={pct_from_ema200_4h:+.1f}%; "
+        if pct_from_ema200_4h is not None
+        else ""
+    )
+    prior_bit = ""
+    if prior_high is not None and prior_high > 0:
+        prior_bit = f"priorHigh={prior_high:.2f}; "
+    fresh_bit = ""
+    if days_since_ath is not None and days_since_ath >= 0:
+        fresh_bit = f"ATH={days_since_ath}d ago; "
+    why = (
+        f"ATH={ath_high:.2f} ({pct_from_ath:+.1f}%); "
+        f"{prior_bit}{fresh_bit}"
+        f"4h RSI={rsi_4h:.1f}; {ema_bit}"
+        f"daily RSI={tech.rsi14:.0f}; "
+        f"{sma_regime_label(tech)}; {market.label}"
+    )
+    row = _base_row(
+        "athdip",
+        ticker,
+        tech,
+        market,
+        news,
+        earn,
+        reddit,
+        None,
+        50.0,
+        score,
+        ok,
+        reason,
+        why,
+    )
+    row.rsi_4h = round(rsi_4h, 2)
+    row.ath_high = round(ath_high, 2)
+    row.pct_from_ath = round(pct_from_ath, 2)
+    row.prior_high = round(prior_high, 2) if prior_high is not None else 0.0
+    row.days_since_ath = int(days_since_ath) if days_since_ath is not None else -1
+    return row
 
 
 # Back-compat alias

@@ -13,7 +13,7 @@ from stock_screener.data.fundamentals import (
 )
 from stock_screener.data.grok_x import GrokXAssessment, enrich_top_with_grok
 from stock_screener.data.news import NewsAssessment, fetch_news_assessment
-from stock_screener.data.prices import download_prices, series_for
+from stock_screener.data.prices import download_intraday, download_prices, series_for
 from stock_screener.data.reddit import (
     RedditAssessment,
     assess_tickers_from_index,
@@ -25,9 +25,20 @@ from stock_screener.data.politicians import (
 )
 from stock_screener.data.sentiment import MarketSentiment, assess_market_sentiment
 from stock_screener.data.universe import resolve_universe
-from stock_screener.features import TechnicalFeatures, compute_technicals
-from stock_screener.scoring import ScreenRow, build_catalyst_row, build_support_row
-
+from stock_screener.features import (
+    TechnicalFeatures,
+    all_time_high,
+    compute_technicals,
+    min_rsi_in_lookback,
+    pct_from_high,
+    recent_multi_year_ath_setup,
+)
+from stock_screener.scoring import (
+    ScreenRow,
+    build_athdip_row,
+    build_catalyst_row,
+    build_support_row,
+)
 logger = logging.getLogger(__name__)
 
 
@@ -124,30 +135,75 @@ def _enrich_with_politicians(df: pd.DataFrame, pol_map: dict) -> pd.DataFrame:
     return out
 
 
+def _trump_to_df(scores: dict) -> pd.DataFrame:
+    rows = [s.to_dict() for s in scores.values() if s.pass_filters]
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows)
+    return df.sort_values("score", ascending=False).reset_index(drop=True)
+
+
+def _enrich_with_trump(df: pd.DataFrame, trump_map: dict) -> pd.DataFrame:
+    if df.empty:
+        return df
+    out = df.copy()
+    scores = []
+    whys = []
+    for t in out["ticker"]:
+        snap = trump_map.get(t)
+        if snap and snap.pass_filters:
+            scores.append(snap.score)
+            whys.append(snap.why)
+        else:
+            scores.append(float("nan"))
+            whys.append("")
+    out["trump_score"] = scores
+    out["trump_why"] = whys
+    return out
+
+
 def run_screener(
     config: ScreenerConfig | None = None,
     tickers: list[str] | None = None,
     fetch_news: bool = True,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, MarketSentiment]:
+) -> tuple[
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    MarketSentiment,
+]:
     """
-    Returns (support_df, catalyst_df, fundamentals_df, politicians_df, market).
+    Returns (support, catalyst, fundamentals, politicians, trump, athdip, market).
     """
     cfg = config or ScreenerConfig()
     mode = (cfg.mode or "all").lower()
     want_support = mode in {"support", "both", "all"}
     want_catalyst = mode in {"catalyst", "both", "all"}
+    want_athdip = mode in {"athdip", "all"}
     want_fundamentals = mode in {"fundamentals", "all"} or (
         cfg.enable_fundamentals and mode in {"support", "catalyst", "both", "all"}
     )
     want_politicians = mode in {"politicians", "all"} or (
         cfg.enable_politicians and mode in {"support", "catalyst", "both", "all"}
     )
-
-    universe = resolve_universe(
-        limit=cfg.max_tickers,
-        tickers=tickers,
-        universe=cfg.universe,
+    want_trump = mode in {"trump", "all"} or (
+        cfg.enable_trump and mode in {"support", "catalyst", "both", "all"}
     )
+
+    # Tracker-only modes don't need a price universe
+    if mode in {"trump", "politicians"} and not (
+        want_support or want_catalyst or want_athdip
+    ):
+        universe = tickers or []
+    else:
+        universe = resolve_universe(
+            limit=cfg.max_tickers,
+            tickers=tickers,
+            universe=cfg.universe,
+        )
     market = assess_market_sentiment(cfg)
     logger.info("Market sentiment: %s (%s)", market.label, market.reason)
     logger.info(
@@ -163,27 +219,42 @@ def run_screener(
     catalyst_df = empty
     fundamentals_df = empty
     politicians_df = empty
+    trump_df = empty
+    athdip_df = empty
     liquid: list[str] = []
     tech_rows: list[tuple[str, TechnicalFeatures]] = []
+    high_by_ticker: dict[str, pd.Series] = {}
+    close_by_ticker: dict[str, pd.Series] = {}
 
-    # Politicians-only can skip price download
-    need_prices = want_support or want_catalyst or mode in {"fundamentals", "all"}
+    need_prices = (
+        want_support
+        or want_catalyst
+        or want_athdip
+        or mode in {"fundamentals", "all"}
+    )
+    hist_days = cfg.history_days
+    if want_athdip:
+        hist_days = max(hist_days, cfg.athdip_history_days)
 
     if need_prices:
         prices = download_prices(
             universe,
-            history_days=cfg.history_days,
+            history_days=hist_days,
             chunk_size=cfg.price_chunk_size,
         )
-        if prices.empty and mode != "politicians":
-            return empty, empty, empty, empty, market
+        if prices.empty and mode not in {"politicians", "trump"}:
+            return empty, empty, empty, empty, empty, empty, market
 
         for ticker in universe:
+            close = series_for(prices, "Close", ticker)
+            high = series_for(prices, "High", ticker)
+            low = series_for(prices, "Low", ticker)
+            vol = series_for(prices, "Volume", ticker)
             tech = compute_technicals(
-                series_for(prices, "Close", ticker),
-                series_for(prices, "High", ticker),
-                series_for(prices, "Low", ticker),
-                series_for(prices, "Volume", ticker),
+                close,
+                high,
+                low,
+                vol,
                 donchian_window=cfg.donchian_window,
                 sma_fast=cfg.sma_fast,
                 sma_slow=cfg.sma_slow,
@@ -192,6 +263,8 @@ def run_screener(
             if tech is None:
                 continue
             tech_rows.append((ticker, tech))
+            high_by_ticker[ticker] = high
+            close_by_ticker[ticker] = close
 
         logger.info(
             "Computed technicals for %d / %d tickers", len(tech_rows), len(universe)
@@ -317,6 +390,16 @@ def run_screener(
             if want_catalyst and not catalyst_df.empty:
                 catalyst_df = _enrich_with_fundamentals(catalyst_df, fund_map)
 
+        # --- Athdip: near ATH + 4h RSI ~30 ---
+        if want_athdip:
+            athdip_df = _run_athdip(
+                tech_rows=tech_rows,
+                high_by_ticker=high_by_ticker,
+                close_by_ticker=close_by_ticker,
+                market=market,
+                cfg=cfg,
+            )
+
     pol_map = {}
     if want_politicians and cfg.enable_politicians:
         trades = collect_politician_trades(
@@ -332,10 +415,156 @@ def run_screener(
             min_trades=cfg.politicians_min_trades,
         )
         politicians_df = _politicians_to_df(pol_map)
-        # Optional enrich technical modes when tickers overlap
         if want_support and not support_df.empty:
             support_df = _enrich_with_politicians(support_df, pol_map)
         if want_catalyst and not catalyst_df.empty:
             catalyst_df = _enrich_with_politicians(catalyst_df, pol_map)
 
-    return support_df, catalyst_df, fundamentals_df, politicians_df, market
+    trump_map = {}
+    if want_trump and cfg.enable_trump:
+        from stock_screener.data.trump_tracker import run_trump_tracker
+
+        _posts, trump_map = run_trump_tracker(
+            enable_truth=cfg.trump_enable_truth,
+            enable_news=cfg.trump_enable_news,
+            enable_wh=cfg.trump_enable_wh,
+            enable_x=cfg.trump_enable_x and cfg.enable_grok,
+            truth_max=cfg.trump_truth_max_posts,
+        )
+        trump_df = _trump_to_df(trump_map)
+        if want_support and not support_df.empty:
+            support_df = _enrich_with_trump(support_df, trump_map)
+        if want_catalyst and not catalyst_df.empty:
+            catalyst_df = _enrich_with_trump(catalyst_df, trump_map)
+
+    return (
+        support_df,
+        catalyst_df,
+        fundamentals_df,
+        politicians_df,
+        trump_df,
+        athdip_df,
+        market,
+    )
+
+
+def _run_athdip(
+    *,
+    tech_rows: list[tuple[str, TechnicalFeatures]],
+    high_by_ticker: dict[str, pd.Series],
+    close_by_ticker: dict[str, pd.Series],
+    market: MarketSentiment,
+    cfg: ScreenerConfig,
+) -> pd.DataFrame:
+    """Watch recent multi-year ATH setups; trigger on 4h RSI ≤ max."""
+    # ticker, tech, ath, pct_ath, prior_high, days_since_ath, setup_ok
+    candidates: list[
+        tuple[str, TechnicalFeatures, float, float, float | None, int | None, bool]
+    ] = []
+    for ticker, tech in tech_rows:
+        if tech.price < cfg.min_price:
+            continue
+        if tech.avg_dollar_volume < cfg.min_avg_dollar_volume:
+            continue
+        if cfg.athdip_require_uptrend:
+            if cfg.athdip_require_sma50:
+                if not (tech.above_sma_fast and tech.above_sma_slow):
+                    continue
+            elif not tech.above_sma_slow:
+                continue
+        if cfg.athdip_drop_death_cross and tech.death_cross:
+            continue
+        high = high_by_ticker.get(ticker, pd.Series(dtype=float))
+        close = close_by_ticker.get(ticker, pd.Series(dtype=float))
+        ath = all_time_high(high)
+        if ath is None or ath <= 0:
+            continue
+        pct_ath = pct_from_high(tech.price, ath)
+        if (
+            cfg.athdip_require_near_ath_pct
+            and pct_ath < cfg.athdip_max_pct_from_ath
+        ):
+            continue
+        prior_high: float | None = None
+        days_since: int | None = None
+        setup_ok = True
+        if cfg.athdip_require_multi_year_break:
+            setup_ok, prior_high, ath_setup, days_since = recent_multi_year_ath_setup(
+                high,
+                close,
+                fresh_window=cfg.athdip_fresh_high_days,
+                max_days_since_ath=cfg.athdip_max_days_since_ath,
+            )
+            if not setup_ok:
+                continue
+            if ath_setup is not None:
+                ath = ath_setup
+                pct_ath = pct_from_high(tech.price, ath)
+        candidates.append(
+            (ticker, tech, ath, pct_ath, prior_high, days_since, setup_ok)
+        )
+
+    logger.info(
+        "Athdip daily prefilter: %d recent multi-year ATH setups "
+        "(≤%dd since ATH, %dd break window)",
+        len(candidates),
+        cfg.athdip_max_days_since_ath,
+        cfg.athdip_fresh_high_days,
+    )
+    if not candidates:
+        return pd.DataFrame()
+
+    tickers = [t for t, *_ in candidates]
+    bars_4h = download_intraday(
+        tickers,
+        interval="4h",
+        period=cfg.athdip_intraday_period,
+        chunk_size=min(40, cfg.price_chunk_size),
+    )
+    rows: list[ScreenRow] = []
+    for ticker, tech, ath, pct_ath, prior_high, days_since, setup_ok in candidates:
+        close_4h = series_for(bars_4h, "Close", ticker).dropna()
+        if close_4h.empty or len(close_4h) < 20:
+            continue
+        rsi_4h = min_rsi_in_lookback(
+            close_4h,
+            lookback_days=cfg.athdip_rsi_lookback_days,
+            period=14,
+        )
+        if rsi_4h is None:
+            continue
+        pct_ema: float | None = None
+        if cfg.athdip_use_4h_ema200 and len(close_4h) >= 200:
+            ema200 = close_4h.ewm(span=200, adjust=False).mean()
+            ema_last = float(ema200.iloc[-1])
+            px_last = float(close_4h.iloc[-1])
+            if ema_last > 0:
+                pct_ema = (px_last / ema_last - 1.0) * 100.0
+        rows.append(
+            build_athdip_row(
+                ticker,
+                tech,
+                market,
+                ath_high=ath,
+                pct_from_ath=pct_ath,
+                rsi_4h=rsi_4h,
+                config=cfg,
+                pct_from_ema200_4h=pct_ema,
+                prior_high=prior_high,
+                days_since_ath=days_since,
+                setup_ok=setup_ok,
+            )
+        )
+    logger.info(
+        "Athdip 4h RSI≤%.0f (min over %dd): %d / %d candidates passed%s",
+        cfg.athdip_rsi_4h_max,
+        cfg.athdip_rsi_lookback_days,
+        sum(1 for r in rows if r.pass_filters),
+        len(rows),
+        (
+            f" · lowest 4h RSI={min(r.rsi_4h for r in rows):.1f}"
+            if rows
+            else ""
+        ),
+    )
+    return _rows_to_passed(rows)

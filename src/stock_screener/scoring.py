@@ -6,6 +6,7 @@ from stock_screener.config import ScreenerConfig
 from stock_screener.data.earnings import EarningsAssessment
 from stock_screener.data.grok_x import GrokXAssessment
 from stock_screener.data.news import NewsAssessment
+from stock_screener.data.polymarket import PolymarketAssessment, intersection_note
 from stock_screener.data.reddit import RedditAssessment
 from stock_screener.data.sentiment import MarketSentiment
 from stock_screener.features import TechnicalFeatures
@@ -47,6 +48,9 @@ class ScreenRow:
     grok_score: float
     grok_label: str
     social_score: float
+    polymarket_score: float
+    polymarket_markets: int
+    polymarket_question: str
     composite: float
     pass_filters: bool
     filter_reason: str
@@ -57,6 +61,8 @@ class ScreenRow:
     pct_from_ath: float = 0.0
     prior_high: float = 0.0
     days_since_ath: int = -1
+    trigger_date: str = ""  # calendar day of lookback-min 4h RSI
+    trigger_price: float = 0.0  # daily close on trigger_date
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -79,6 +85,9 @@ def sma_regime_label(tech: TechnicalFeatures) -> str:
 def blend_social(
     reddit: RedditAssessment,
     grok: GrokXAssessment | None,
+    polymarket: PolymarketAssessment | None = None,
+    *,
+    polymarket_weight: float = 0.35,
 ) -> tuple[float, str]:
     if grok is not None and grok.used and grok.label not in {"error", "skipped"}:
         score = 0.45 * reddit.score + 0.55 * grok.score
@@ -86,6 +95,13 @@ def blend_social(
     else:
         score = reddit.score
         detail = reddit.reason
+
+    if polymarket is not None and polymarket.used:
+        w = max(0.0, min(0.6, float(polymarket_weight)))
+        score = (1.0 - w) * score + w * polymarket.score
+        detail = f"{detail}; {polymarket.reason}"
+    else:
+        detail = f"{detail}; polymarket=n/a"
     return score, detail
 
 
@@ -213,7 +229,9 @@ def _base_row(
     ok: bool,
     reason: str,
     why: str,
+    polymarket: PolymarketAssessment | None = None,
 ) -> ScreenRow:
+    pm = polymarket
     return ScreenRow(
         mode=mode,
         ticker=ticker,
@@ -251,6 +269,9 @@ def _base_row(
         grok_score=round(grok.score, 1) if grok and grok.used else 50.0,
         grok_label=grok.label if grok and grok.used else "skipped",
         social_score=round(social_score, 1),
+        polymarket_score=round(pm.score, 1) if pm and pm.used else 50.0,
+        polymarket_markets=pm.n_markets if pm else 0,
+        polymarket_question=pm.top_question if pm and pm.used else "",
         composite=composite,
         pass_filters=ok,
         filter_reason=reason,
@@ -267,26 +288,39 @@ def build_support_row(
     reddit: RedditAssessment,
     grok: GrokXAssessment | None,
     config: ScreenerConfig,
+    polymarket: PolymarketAssessment | None = None,
 ) -> ScreenRow:
     ok, reason = apply_support_filters(tech, news, config, market)
-    social_score, social_detail = blend_social(reddit, grok)
+    social_score, social_detail = blend_social(
+        reddit,
+        grok,
+        polymarket,
+        polymarket_weight=config.polymarket_weight,
+    )
     score = (
         support_composite(tech, market, news, earnings, social_score, config)
         if ok
         else float("nan")
     )
-    why = "; ".join(
-        [
-            f"prox={tech.proximity:.2f}",
-            f"RSI={tech.rsi14:.0f} ({tech.rsi_bias})",
-            f"52w={tech.pct_from_52w_high:+.1f}%H/{tech.pct_from_52w_low:+.1f}%L",
-            sma_regime_label(tech),
-            market.label,
-            news.reason,
-            earnings.reason,
-            social_detail,
-        ]
+    intersect = intersection_note(
+        news.score,
+        polymarket,
+        reddit_score=reddit.score,
+        reddit_mentions=reddit.mentions,
     )
+    why_bits = [
+        f"prox={tech.proximity:.2f}",
+        f"RSI={tech.rsi14:.0f} ({tech.rsi_bias})",
+        f"52w={tech.pct_from_52w_high:+.1f}%H/{tech.pct_from_52w_low:+.1f}%L",
+        sma_regime_label(tech),
+        market.label,
+        news.reason,
+        earnings.reason,
+        social_detail,
+    ]
+    if intersect:
+        why_bits.append(intersect)
+    why = "; ".join(why_bits)
     return _base_row(
         "support",
         ticker,
@@ -301,6 +335,7 @@ def build_support_row(
         ok,
         reason,
         why,
+        polymarket=polymarket,
     )
 
 
@@ -313,9 +348,15 @@ def build_catalyst_row(
     reddit: RedditAssessment,
     grok: GrokXAssessment | None,
     config: ScreenerConfig,
+    polymarket: PolymarketAssessment | None = None,
 ) -> ScreenRow:
     ok, reason = apply_catalyst_filters(tech, news, earnings, config, market)
-    social_score, social_detail = blend_social(reddit, grok)
+    social_score, social_detail = blend_social(
+        reddit,
+        grok,
+        polymarket,
+        polymarket_weight=config.polymarket_weight,
+    )
     score = (
         catalyst_composite(tech, market, news, earnings, social_score, config)
         if ok
@@ -332,17 +373,24 @@ def build_catalyst_row(
         flags.append(f"RSI={tech.rsi14:.0f} ({tech.rsi_bias})")
     if tech.pct_from_52w_high >= -5:
         flags.append("near52wH")
-    why = "; ".join(
-        [
-            " ".join(flags) if flags else "catalyst",
-            news.reason,
-            earnings.catalyst_reason,
-            f"mom={tech.momentum_score:.0f}",
-            f"52w={tech.pct_from_52w_high:+.1f}%H",
-            market.label,
-            social_detail,
-        ]
+    intersect = intersection_note(
+        news.score,
+        polymarket,
+        reddit_score=reddit.score,
+        reddit_mentions=reddit.mentions,
     )
+    why_bits = [
+        " ".join(flags) if flags else "catalyst",
+        news.reason,
+        earnings.catalyst_reason,
+        f"mom={tech.momentum_score:.0f}",
+        f"52w={tech.pct_from_52w_high:+.1f}%H",
+        market.label,
+        social_detail,
+    ]
+    if intersect:
+        why_bits.append(intersect)
+    why = "; ".join(why_bits)
     return _base_row(
         "catalyst",
         ticker,
@@ -357,6 +405,7 @@ def build_catalyst_row(
         ok,
         reason,
         why,
+        polymarket=polymarket,
     )
 
 
@@ -458,6 +507,8 @@ def build_athdip_row(
     recent_max: float | None = None,
     days_since_ath: int | None = None,
     setup_ok: bool | None = None,
+    trigger_date: str | None = None,
+    trigger_price: float | None = None,
 ) -> ScreenRow:
     from stock_screener.data.earnings import EarningsAssessment
     from stock_screener.data.news import NewsAssessment
@@ -500,9 +551,15 @@ def build_athdip_row(
     fresh_bit = ""
     if days_since_ath is not None and days_since_ath >= 0:
         fresh_bit = f"ATH={days_since_ath}d ago; "
+    trig_bit = ""
+    if trigger_date:
+        if trigger_price is not None and trigger_price > 0:
+            trig_bit = f"trigger={trigger_date} @{trigger_price:.2f}; "
+        else:
+            trig_bit = f"trigger={trigger_date}; "
     why = (
         f"ATH={ath_high:.2f} ({pct_from_ath:+.1f}%); "
-        f"{prior_bit}{fresh_bit}"
+        f"{prior_bit}{fresh_bit}{trig_bit}"
         f"4h RSI={rsi_4h:.1f}; {ema_bit}"
         f"daily RSI={tech.rsi14:.0f}; "
         f"{sma_regime_label(tech)}; {market.label}"
@@ -527,6 +584,12 @@ def build_athdip_row(
     row.pct_from_ath = round(pct_from_ath, 2)
     row.prior_high = round(prior_high, 2) if prior_high is not None else 0.0
     row.days_since_ath = int(days_since_ath) if days_since_ath is not None else -1
+    row.trigger_date = trigger_date or ""
+    row.trigger_price = (
+        round(float(trigger_price), 4)
+        if trigger_price is not None and trigger_price > 0
+        else 0.0
+    )
     return row
 
 

@@ -1,8 +1,24 @@
 # Screener dashboard
 
-**As of:** 2026-09-01 · **Regime:** neutral
+**As of:** 2026-09-09
 
-Long-only stock screener results (auto-generated from latest CSV output).
+## Today's focus
+
+Watchlist only — not investment advice.
+
+| Kind | Ticker | Price | Why | Modes | Sector | PE | PEG | FCF% | ROE% |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| conflict | AMGN | 391.27 | Athdip dip vs Congress sells (0/3) · px 391.27 < trigger 393.17 (2026-09-08) | athdip · politicians | — | 24.3 | 2.11 | 4.1% | 91.5% |
+| intersection | ADI | 364.05 | Support+fund confirm | support · catalyst · fundamentals | Technology | 43.2 | 0.54 | 2.4% | 12.2% |
+| intersection | AMAT | 469.87 | Support+fund confirm · pol sell=1 | support · catalyst · fundamentals · politicians | Technology | 40.5 | 0.90 | 0.8% | 41.1% |
+| single | AFL | 114.89 | Top support score today | support · catalyst · fundamentals · politicians | Financial Services | 12.4 | 1.18 | 8.9% | 16.9% |
+| single | ADM | 85.85 | Top catalyst score today | catalyst | — | 23.5 | 1.05 | 2.8% | 7.6% |
+| single | BA | 211.21 | Top Trump tracker · pol sells=2 | support · politicians · trump | — | 74.9 | 1.53 | 3.4% | 173.5% |
+| single | CHWY | 20.70 | Top politicians · buys=4 sells=0 | politicians | — | 34.5 | 0.47 | 5.5% | 63.8% |
+
+Source: `output/today_focus.csv` · rebuild with `python3 scripts/build_screen_dashboard.py`
+
+---
 
 ## Support
 

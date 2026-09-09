@@ -65,6 +65,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="CSV base path (suffixes per mode)",
     )
     p.add_argument("--no-news", action="store_true")
+    p.add_argument(
+        "--no-x-quote-news",
+        action="store_true",
+        help="Skip Google News RSS that quotes X/Twitter (blended into Yahoo news)",
+    )
+    p.add_argument(
+        "--no-polymarket",
+        action="store_true",
+        help="Skip Polymarket odds (blended into support/catalyst social)",
+    )
     p.add_argument("--no-reddit", action="store_true")
     p.add_argument("--no-earnings", action="store_true")
     p.add_argument("--no-fundamentals", action="store_true")
@@ -202,6 +212,8 @@ def main(argv: list[str] | None = None) -> int:
         athdip_rsi_lookback_days=args.athdip_rsi_lookback,
         enable_grok=not args.no_grok,
         grok_top_n=args.grok_top,
+        enable_x_quote_news=not args.no_x_quote_news,
+        enable_polymarket=not args.no_polymarket,
     )
 
     support_df, catalyst_df, fund_df, pol_df, trump_df, athdip_df, market = run_screener(
@@ -238,7 +250,7 @@ def main(argv: list[str] | None = None) -> int:
     }
 
     if args.mode in {"support", "both", "all"}:
-        print("\n=== SUPPORT (near support / mean-reversion) ===")
+        print("\n=== SUPPORT (near support / mean-reversion · Polymarket social) ===")
         if support_df.empty:
             print("No names passed support filters.")
         else:
@@ -259,6 +271,8 @@ def main(argv: list[str] | None = None) -> int:
                     "pct_from_1w_high",
                     "sma_regime",
                     "news_score",
+                    "polymarket_score",
+                    "polymarket_markets",
                     "fund_score",
                     "peg",
                     "fcf_yield",
@@ -271,7 +285,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Saved {len(support_df)} rows → {path}")
 
     if args.mode in {"catalyst", "both", "all"}:
-        print("\n=== CATALYST (news / earnings / momentum pop) ===")
+        print("\n=== CATALYST (news / earnings / momentum pop · Polymarket social) ===")
         if catalyst_df.empty:
             print("No names passed catalyst filters.")
         else:
@@ -294,7 +308,10 @@ def main(argv: list[str] | None = None) -> int:
                     "pct_from_52w_high",
                     "pct_from_1w_high",
                     "news_score",
+                    "polymarket_score",
+                    "polymarket_markets",
                     "momentum_score",
+                    "social_score",
                     "fund_score",
                     "peg",
                     "fcf_yield",

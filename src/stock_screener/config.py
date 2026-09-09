@@ -108,6 +108,14 @@ class ScreenerConfig:
     enable_reddit: bool = True
     enable_earnings: bool = True
     enable_grok: bool = True
+    # Google News RSS that quotes X/Twitter — blended into Yahoo news for
+    # support/catalyst (not a separate mode; StockTwits left experimental).
+    enable_x_quote_news: bool = True
+    x_quote_news_weight: float = 0.35  # share of news score when both fire
+    # Polymarket per-ticker odds — blended into social for support/catalyst
+    enable_polymarket: bool = True
+    polymarket_weight: float = 0.35  # share of social when open markets exist
+    polymarket_min_volume: float = 500.0
 
 
 DEFAULT_CONFIG = ScreenerConfig()

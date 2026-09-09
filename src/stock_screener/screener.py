@@ -13,6 +13,14 @@ from stock_screener.data.fundamentals import (
 )
 from stock_screener.data.grok_x import GrokXAssessment, enrich_top_with_grok
 from stock_screener.data.news import NewsAssessment, fetch_news_assessment
+from stock_screener.data.x_quote_news import (
+    blend_yahoo_and_x_quote,
+    fetch_x_quote_news_assessment,
+)
+from stock_screener.data.polymarket import (
+    PolymarketAssessment,
+    fetch_polymarket_assessment,
+)
 from stock_screener.data.prices import download_intraday, download_prices, series_for
 from stock_screener.data.reddit import (
     RedditAssessment,
@@ -29,7 +37,7 @@ from stock_screener.features import (
     TechnicalFeatures,
     all_time_high,
     compute_technicals,
-    min_rsi_in_lookback,
+    min_rsi_lookback_detail,
     pct_from_high,
     recent_multi_year_ath_setup,
 )
@@ -293,6 +301,36 @@ def run_screener(
                     t, assessment = fut.result()
                     news_map[t] = assessment
 
+            if cfg.enable_x_quote_news:
+                logger.info(
+                    "Fetching X-quoting news RSS for %d liquid candidates", len(liquid)
+                )
+
+                def _one_x(t: str) -> tuple[str, NewsAssessment]:
+                    return t, fetch_x_quote_news_assessment(
+                        t,
+                        news_hours=cfg.news_hours,
+                        pause=min(0.08, cfg.sleep_between_news),
+                    )
+
+                x_map: dict[str, NewsAssessment] = {}
+                with ThreadPoolExecutor(max_workers=4) as pool:
+                    futures = [pool.submit(_one_x, t) for t in liquid]
+                    for fut in as_completed(futures):
+                        t, assessment = fut.result()
+                        x_map[t] = assessment
+                for t in liquid:
+                    news_map[t] = blend_yahoo_and_x_quote(
+                        news_map.get(
+                            t,
+                            NewsAssessment(
+                                50.0, False, 0, "", "News skipped"
+                            ),
+                        ),
+                        x_map.get(t),
+                        x_weight=cfg.x_quote_news_weight,
+                    )
+
         earnings_map: dict[str, EarningsAssessment] = {}
         if cfg.enable_earnings and (want_support or want_catalyst):
             earnings_map = fetch_earnings_map(liquid)
@@ -301,6 +339,27 @@ def run_screener(
         if cfg.enable_reddit and (want_support or want_catalyst):
             index = build_reddit_mention_index(known_tickers=set(universe))
             reddit_map = assess_tickers_from_index([t for t, _ in tech_rows], index)
+
+        polymarket_map: dict[str, PolymarketAssessment] = {}
+        if cfg.enable_polymarket and (want_support or want_catalyst):
+            logger.info(
+                "Fetching Polymarket odds for %d liquid candidates", len(liquid)
+            )
+
+            def _one_pm(t: str) -> tuple[str, PolymarketAssessment]:
+                return t, fetch_polymarket_assessment(
+                    t,
+                    min_vol=cfg.polymarket_min_volume,
+                    pause=min(0.05, cfg.sleep_between_news),
+                )
+
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                futures = [pool.submit(_one_pm, t) for t in liquid]
+                for fut in as_completed(futures):
+                    t, assessment = fut.result()
+                    polymarket_map[t] = assessment
+            covered = sum(1 for a in polymarket_map.values() if a.used)
+            logger.info("Polymarket coverage: %d / %d liquid", covered, len(liquid))
 
         neutral_news = NewsAssessment(
             score=50.0,
@@ -323,17 +382,34 @@ def run_screener(
                 news = news_map.get(ticker, neutral_news)
                 earn = earnings_map.get(ticker, neutral_earnings)
                 reddit = reddit_map.get(ticker, neutral_reddit)
+                pm = polymarket_map.get(ticker)
                 grok = grok_map.get(ticker)
                 if want_support:
                     support_rows.append(
                         build_support_row(
-                            ticker, tech, market, news, earn, reddit, grok, cfg
+                            ticker,
+                            tech,
+                            market,
+                            news,
+                            earn,
+                            reddit,
+                            grok,
+                            cfg,
+                            polymarket=pm,
                         )
                     )
                 if want_catalyst:
                     catalyst_rows.append(
                         build_catalyst_row(
-                            ticker, tech, market, news, earn, reddit, grok, cfg
+                            ticker,
+                            tech,
+                            market,
+                            news,
+                            earn,
+                            reddit,
+                            grok,
+                            cfg,
+                            polymarket=pm,
                         )
                     )
             return support_rows, catalyst_rows
@@ -526,13 +602,40 @@ def _run_athdip(
         close_4h = series_for(bars_4h, "Close", ticker).dropna()
         if close_4h.empty or len(close_4h) < 20:
             continue
-        rsi_4h = min_rsi_in_lookback(
+        detail = min_rsi_lookback_detail(
             close_4h,
             lookback_days=cfg.athdip_rsi_lookback_days,
             period=14,
         )
-        if rsi_4h is None:
+        if detail is None:
             continue
+        rsi_4h, trig_day = detail
+        trigger_date = str(trig_day)
+        trigger_price: float | None = None
+        daily = close_by_ticker.get(ticker, pd.Series(dtype=float)).dropna()
+        if not daily.empty:
+            d_idx = pd.to_datetime(daily.index).tz_localize(None).normalize()
+            daily = daily.copy()
+            daily.index = d_idx
+            td = pd.Timestamp(trig_day).normalize()
+            if td in daily.index:
+                trigger_price = float(daily.loc[td])
+            else:
+                prior = daily.index[daily.index <= td]
+                if len(prior):
+                    trigger_price = float(daily.loc[prior[-1]])
+        if trigger_price is None and not close_4h.empty:
+            # Fallback: 4h close on trigger session
+            for ts, px in close_4h.items():
+                t = pd.Timestamp(ts)
+                sess = (
+                    t.tz_convert("America/New_York").date()
+                    if t.tzinfo is not None
+                    else t.date()
+                )
+                if sess == trig_day:
+                    trigger_price = float(px)
+                    break
         pct_ema: float | None = None
         if cfg.athdip_use_4h_ema200 and len(close_4h) >= 200:
             ema200 = close_4h.ewm(span=200, adjust=False).mean()
@@ -553,6 +656,8 @@ def _run_athdip(
                 prior_high=prior_high,
                 days_since_ath=days_since,
                 setup_ok=setup_ok,
+                trigger_date=trigger_date,
+                trigger_price=trigger_price,
             )
         )
     logger.info(

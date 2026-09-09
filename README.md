@@ -9,7 +9,7 @@ Python screener with six long-only modes + **VIX regime**:
 5. **Trump** — Truth Social (trumpstruth.org RSS) + Google News RSS + White House RSS + optional Grok X; maps cashtags / company names / policy themes → tickers  
 6. **Athdip** — uptrend near multi-year ATH with **4h RSI ~30** (pass if ≤35)
 
-Shared free inputs: Yahoo OHLCV + news + earnings + fundamentals, `^VIX`, STOCK Act public filings, optional Reddit + Grok X.
+Shared free inputs: Yahoo OHLCV + news (+ X-quoting Google News RSS) + Polymarket odds + earnings + fundamentals, `^VIX`, STOCK Act public filings, optional Reddit + Grok X.
 
 ## Free data sources
 
@@ -18,8 +18,9 @@ Shared free inputs: Yahoo OHLCV + news + earnings + fundamentals, `^VIX`, STOCK 
 | NASDAQ Trader symbol dirs | Full US listed universe (`--universe us`) |
 | Wikipedia | S&P 500 (`--universe sp500`) |
 | Yahoo Finance / yfinance | OHLCV, VIX, news, earnings |
+| Google News RSS | Per-ticker X/Twitter-quoted headlines (blended into support/catalyst news); also Trump / tariff / Fed / trade |
+| Polymarket Gamma API | Per-ticker prediction-market odds (blended into support/catalyst social; sparse outside mega-caps) |
 | trumpstruth.org RSS | Truth Social mirror for @realDonaldTrump |
-| Google News RSS | Trump / tariff / Fed / trade / X-quoted headlines |
 | whitehouse.gov RSS | Official news, presidential actions, briefings |
 | Reddit public JSON / optional OAuth | Retail mention / polarity |
 | xAI Grok API | Optional X sentiment + Trump X posts |
@@ -76,6 +77,16 @@ Athdip: **setup** = multi-year ATH break (21d fresh high at ATH time); **trigger
 
 Results print to the terminal and write `output/screen.csv`.
 
+### Daily dashboard (Today's focus)
+
+After a screen run, rebuild the Cursor canvas + `output/today_focus.csv`:
+
+```bash
+python3 scripts/build_screen_dashboard.py
+```
+
+Project skill (for agents / teammates): `.cursor/skills/daily-screen/SKILL.md` — covers the full reproduce path (screen → focus → canvas).
+
 ## Scoring defaults
 
 | Pillar | Weight |
@@ -83,11 +94,11 @@ Results print to the terminal and write `output/screen.csv`.
 | S/R proximity | 30% |
 | SMA regime | 20% |
 | Market (VIX) | 15% |
-| News | 15% |
+| News (Yahoo ± X-quote RSS) | 15% |
 | Earnings proximity | 10% |
-| Social (Reddit ± Grok) | 10% |
+| Social (Reddit ± Grok ± Polymarket) | 10% |
 
-Hard filters still drop illiquid names, tight ranges, resistance-hugging prices, below-SMA200 (unless `--allow-below-200`), death crosses, and news vetoes.
+Hard filters still drop illiquid names, tight ranges, resistance-hugging prices, below-SMA200 (unless `--allow-below-200`), death crosses, and news vetoes. X-quoting headlines tilt news score (~35% when both Yahoo and X-RSS fire); disable with `--no-x-quote-news`. Polymarket tilts social (~35% when open markets exist) and `why` notes source plus news/reddit agree/diverge; disable with `--no-polymarket`.
 
 ## Notes
 

@@ -92,6 +92,7 @@ def parse_run_meta(log_path: Path) -> dict[str, Any]:
         "regime": "neutral",
         "cape": None,
         "buffett": None,
+        "cycle": "fair",
         "trumpPosts": None,
         "trumpTickers": None,
         "truth": None,
@@ -113,6 +114,9 @@ def parse_run_meta(log_path: Path) -> dict[str, Any]:
     m = re.search(r"Buffett=([0-9.]+)%", text)
     if m:
         meta["buffett"] = float(m.group(1))
+    m = re.search(r"Market cycle: (\w+)", text)
+    if m:
+        meta["cycle"] = m.group(1)
     m = re.search(r"Trump tracker collected (\d+)", text)
     if m:
         meta["trumpPosts"] = int(m.group(1))
@@ -464,6 +468,7 @@ def render_canvas(
         "regime": meta.get("regime") or "neutral",
         "cape": meta.get("cape") or 0.0,
         "buffett": int(meta.get("buffett") or 0),
+        "cycle": meta.get("cycle") or "fair",
         "universe": 80,
         "support": len(modes.get("support") or []),
         "catalyst": len(modes.get("catalyst") or []),
@@ -637,6 +642,7 @@ const RUN = {{
   regime: {js_str(run["regime"])},
   cape: {js_num(run["cape"], 1)},
   buffett: {run["buffett"]},
+  cycle: {js_str(run["cycle"])},
   universe: {run["universe"]},
   support: {run["support"]},
   catalyst: {run["catalyst"]},
@@ -732,6 +738,11 @@ function th(label: string, tip: string) {{
   return <span title={{tip}}>{{label}}</span>;
 }}
 
+/** Native browser tooltip wrapping a Stat (or other block). */
+function withTip(tip: string, node: JSX.Element) {{
+  return <div title={{tip}}>{{node}}</div>;
+}}
+
 export default function ScreenDashboard() {{
   const srcTotal = TRUMP_SOURCES.reduce((a, s) => a + s.count, 0);
   const cross = FOCUS.filter((r) => r.kind !== "single");
@@ -796,19 +807,49 @@ export default function ScreenDashboard() {{
       </Stack>
 
       <Grid columns={{4}} gap={{12}}>
-        <Stat value={{RUN.vix.toFixed(1)}} label="VIX" />
-        <Stat value={{RUN.regime}} label="Regime" tone="info" />
-        <Stat value={{String(RUN.cape)}} label="CAPE" tone="warning" />
-        <Stat value={{`${{RUN.buffett}}%`}} label="Buffett · expensive" tone="warning" />
+        {{withTip(
+          "CBOE Volatility Index (^VIX) — market fear gauge. Risk-on at or below about 15; risk-off at or above about 25; mid range is neutral.",
+          <Stat value={{RUN.vix.toFixed(1)}} label="VIX" />,
+        )}}
+        {{withTip(
+          "VIX-driven trading regime (risk-on / neutral / risk-off). Tightens or loosens support and catalyst filters and weights.",
+          <Stat value={{RUN.regime}} label="Regime" tone="info" />,
+        )}}
+        {{withTip(
+          "Shiller CAPE (cyclically adjusted price-to-earnings). Rough bands: under 20 cheap, 20–28 fair, over 28 expensive. Used with Buffett for the market-cycle label.",
+          <Stat value={{String(RUN.cape)}} label="CAPE" tone="warning" />,
+        )}}
+        {{withTip(
+          "Buffett Indicator ≈ total US equity market cap / GDP (percent). Rough bands: under 100% cheap, 100–140% fair, over 140% expensive. Label after the · is the combined cycle read with CAPE.",
+          <Stat value={{`${{RUN.buffett}}%`}} label={{`Buffett · ${{RUN.cycle}}`}} tone="warning" />,
+        )}}
       </Grid>
 
       <Grid columns={{6}} gap={{10}}>
-        <Stat value={{String(RUN.support)}} label="Support" />
-        <Stat value={{String(RUN.catalyst)}} label="Catalyst" />
-        <Stat value={{String(RUN.fund)}} label="Fundamentals" />
-        <Stat value={{String(RUN.pol)}} label="Politicians" />
-        <Stat value={{String(RUN.trumpTickers)}} label="Trump" tone="info" />
-        <Stat value={{String(RUN.athdipPass)}} label="Athdip" tone="success" />
+        {{withTip(
+          "Count of names that passed Support-mode filters in this screen run (near support / mean-reversion).",
+          <Stat value={{String(RUN.support)}} label="Support" />,
+        )}}
+        {{withTip(
+          "Count of names that passed Catalyst-mode filters (news / earnings / momentum; social may include Polymarket).",
+          <Stat value={{String(RUN.catalyst)}} label="Catalyst" />,
+        )}}
+        {{withTip(
+          "Count of Fundamentals-mode leaders (growth, profitability, balance sheet, ROIC, valuation).",
+          <Stat value={{String(RUN.fund)}} label="Fundamentals" />,
+        )}}
+        {{withTip(
+          "Count of tickers with freshness-weighted United States Congress trading flow in Politicians mode.",
+          <Stat value={{String(RUN.pol)}} label="Politicians" />,
+        )}}
+        {{withTip(
+          "Count of tickers mapped from Trump-tracker themes (Truth Social, Google News, White House feeds).",
+          <Stat value={{String(RUN.trumpTickers)}} label="Trump" tone="info" />,
+        )}}
+        {{withTip(
+          "Count of Athdip hard passes: recent multi-year all-time-high setup with four-hour relative strength index near oversold.",
+          <Stat value={{String(RUN.athdipPass)}} label="Athdip" tone="success" />,
+        )}}
       </Grid>
 
       <Callout tone="info" title={{RUN.note}}>
@@ -817,14 +858,22 @@ export default function ScreenDashboard() {{
 
       <Stack gap={{10}}>
         <Row align="center" gap={{10}}>
-          <H2>Today</H2>
-          <Pill tone="warning">watchlist · not advice</Pill>
+          {{withTip(
+            "Cross-mode intersections, conflicts, and single-mode leaders with fundamentals",
+            <H2>Today</H2>,
+          )}}
+          <Pill tone="warning" title="Informational watchlist only — not investment advice">
+            watchlist · not advice
+          </Pill>
         </Row>
         <Text tone="secondary">
           Intersections / conflicts first, then top single-mode leaders — with fundamentals.
         </Text>
 
-        <Text weight="semibold">Cross-mode intersections & conflicts</Text>
+        {{withTip(
+          "Names tagged by more than one mode, or where modes disagree",
+          <Text weight="semibold">Cross-mode intersections & conflicts</Text>,
+        )}}
         <Table
           headers={{crossHeaders}}
           columnAlign={{["left","left","right","left","left","right","right","right","right","right","right","left","right","right","right","right"]}}
@@ -849,7 +898,10 @@ export default function ScreenDashboard() {{
           rowTone={{cross.map((r) => focusTone(r.kind))}}
         />
 
-        <Text weight="semibold">Single-mode leaders</Text>
+        {{withTip(
+          "Top names that only lead in a single mode (not already listed in the cross-mode section)",
+          <Text weight="semibold">Single-mode leaders</Text>,
+        )}}
         <Table
           headers={{singleHeaders}}
           columnAlign={{["left","left","right","left","right","left","right","right","right","right"]}}
@@ -879,8 +931,13 @@ export default function ScreenDashboard() {{
 
       <Stack gap={{10}}>
         <Row align="center" gap={{10}}>
-          <H2>Athdip</H2>
-          <Pill tone="success">ATH setup + 4h RSI dip</Pill>
+          {{withTip(
+            "Uptrend near a multi-year all-time high with a four-hour relative strength index dip near oversold",
+            <H2>Athdip</H2>,
+          )}}
+          <Pill tone="success" title="Requires a recent multi-year ATH setup plus four-hour RSI near about 30">
+            ATH setup + 4h RSI dip
+          </Pill>
         </Row>
         <Table
           headers={{[
@@ -911,15 +968,23 @@ export default function ScreenDashboard() {{
 
       <Stack gap={{10}}>
         <Row align="center" gap={{10}}>
-          <H2>Trump tracker</H2>
-          <Pill tone="warning">policy / themes</Pill>
+          {{withTip(
+            "Maps Truth Social, Google News, and White House items to liquid tickers by cashtag, company name, and policy theme",
+            <H2>Trump tracker</H2>,
+          )}}
+          <Pill tone="warning" title="Freshness-weighted theme scores — not a trading signal by itself">
+            policy / themes
+          </Pill>
         </Row>
-        <UsageBar
-          total={{srcTotal || 1}}
-          segments={{TRUMP_SOURCES.map((s) => ({{ id: s.label, value: s.count }}))}}
-          topLeftLabel="Feed mix"
-          topRightLabel={{`${{srcTotal}} items`}}
-        />
+        {{withTip(
+          "Share of Trump-tracker items by source: Truth Social mirror, Google News RSS, and White House RSS",
+          <UsageBar
+            total={{srcTotal || 1}}
+            segments={{TRUMP_SOURCES.map((s) => ({{ id: s.label, value: s.count }}))}}
+            topLeftLabel="Feed mix"
+            topRightLabel={{`${{srcTotal}} items`}}
+          />,
+        )}}
         <BarChart
           categories={{TRUMP.slice(0, 10).map((r) => r.ticker)}}
           series={{[{{ name: "Trump score", data: TRUMP.slice(0, 10).map((r) => r.score), tone: "warning" }}]}}
@@ -941,7 +1006,10 @@ export default function ScreenDashboard() {{
       <Divider />
 
       <Stack gap={{10}}>
-        <H2>YTD backtest</H2>
+        {{withTip(
+          "Year-to-date paper returns by mode versus SPY (from the optional backtest script)",
+          <H2>YTD backtest</H2>,
+        )}}
         <BarChart
           categories={{BACKTEST_YTD.map((r) => r.mode)}}
           series={{[{{ name: "YTD return %", data: BACKTEST_YTD.map((r) => r.ret), tone: "info" }}]}}
@@ -971,7 +1039,10 @@ export default function ScreenDashboard() {{
       <Divider />
 
       <Stack gap={{10}}>
-        <H2>Politicians</H2>
+        {{withTip(
+          "United States Congress STOCK Act disclosures (Capitol Trades plus House/Senate), freshness-weighted",
+          <H2>Politicians</H2>,
+        )}}
         <Table
           headers={{[
             th("Ticker", "Stock ticker symbol"),
@@ -997,7 +1068,10 @@ export default function ScreenDashboard() {{
       <Divider />
 
       <Stack gap={{10}}>
-        <H2>Support</H2>
+        {{withTip(
+          "Near support or SMA pullback setups with VIX-regime gates",
+          <H2>Support</H2>,
+        )}}
         <Table
           headers={{[
             th("Ticker", "Stock ticker symbol"),
@@ -1031,7 +1105,10 @@ export default function ScreenDashboard() {{
       <Divider />
 
       <Stack gap={{10}}>
-        <H2>Catalyst</H2>
+        {{withTip(
+          "News, earnings proximity, and momentum pops; social may include Polymarket odds",
+          <H2>Catalyst</H2>,
+        )}}
         <Table
           headers={{[
             th("Ticker", "Stock ticker symbol"),
@@ -1061,7 +1138,10 @@ export default function ScreenDashboard() {{
       <Divider />
 
       <Stack gap={{10}}>
-        <H2>Fundamentals</H2>
+        {{withTip(
+          "Growth, profitability, balance sheet, capital efficiency, and valuation composite",
+          <H2>Fundamentals</H2>,
+        )}}
         <Table
           headers={{[
             th("Ticker", "Stock ticker symbol"),

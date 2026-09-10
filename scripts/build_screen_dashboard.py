@@ -1272,6 +1272,20 @@ def main() -> None:
     for p in picks:
         print(f"  [{p['kind']}] {p['ticker']}: {p['why']}")
 
+    # New-symbol alerts vs previous snapshot (stdout + optional desktop/Slack)
+    try:
+        import importlib.util
+
+        alert_path = ROOT / "scripts" / "alert_new_signals.py"
+        spec = importlib.util.spec_from_file_location("alert_new_signals", alert_path)
+        if spec and spec.loader:
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            print("\n--- New-signal check ---")
+            mod.run(desktop=True, slack=True, dry_run=False)
+    except Exception as exc:  # noqa: BLE001
+        print(f"New-signal alert skipped: {exc}")
+
 
 if __name__ == "__main__":
     main()

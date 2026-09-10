@@ -116,6 +116,9 @@ class ScreenerConfig:
     enable_polymarket: bool = True
     polymarket_weight: float = 0.35  # share of social when open markets exist
     polymarket_min_volume: float = 500.0
+    # Curated 13F managers — soft social overlay (lagged quarterly holdings)
+    enable_institutions: bool = True
+    institutions_weight: float = 0.30  # share of social when ≥1 manager holds
 
 
 DEFAULT_CONFIG = ScreenerConfig()

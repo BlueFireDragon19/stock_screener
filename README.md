@@ -9,7 +9,7 @@ Python screener with six long-only modes + **VIX regime**:
 5. **Trump** — Truth Social (trumpstruth.org RSS) + Google News RSS + White House RSS + optional Grok X; maps cashtags / company names / policy themes → tickers  
 6. **Athdip** — uptrend near multi-year ATH with **4h RSI ~30** (pass if ≤35)
 
-Shared free inputs: Yahoo OHLCV + news (+ X-quoting Google News RSS) + Polymarket odds + earnings + fundamentals, `^VIX`, STOCK Act public filings, optional Reddit + Grok X.
+Shared free inputs: Yahoo OHLCV + news (+ X-quoting Google News RSS) + Polymarket odds + curated 13F institutional holdings + earnings + fundamentals, `^VIX`, STOCK Act public filings, optional Reddit + Grok X.
 
 ## Free data sources
 
@@ -20,6 +20,7 @@ Shared free inputs: Yahoo OHLCV + news (+ X-quoting Google News RSS) + Polymarke
 | Yahoo Finance / yfinance | OHLCV, VIX, news, earnings |
 | Google News RSS | Per-ticker X/Twitter-quoted headlines (blended into support/catalyst news); also Trump / tariff / Fed / trade |
 | Polymarket Gamma API | Per-ticker prediction-market odds (blended into support/catalyst social; sparse outside mega-caps) |
+| SEC EDGAR 13F | Curated hedge-fund / manager holdings overlay (lagged quarterly; `why` tags like `13F: Berkshire (+2)`) |
 | trumpstruth.org RSS | Truth Social mirror for @realDonaldTrump |
 | whitehouse.gov RSS | Official news, presidential actions, briefings |
 | Reddit public JSON / optional OAuth | Retail mention / polarity |
@@ -96,9 +97,9 @@ Project skill (for agents / teammates): `.cursor/skills/daily-screen/SKILL.md` �
 | Market (VIX) | 15% |
 | News (Yahoo ± X-quote RSS) | 15% |
 | Earnings proximity | 10% |
-| Social (Reddit ± Grok ± Polymarket) | 10% |
+| Social (Reddit ± Grok ± Polymarket ± 13F) | 10% |
 
-Hard filters still drop illiquid names, tight ranges, resistance-hugging prices, below-SMA200 (unless `--allow-below-200`), death crosses, and news vetoes. X-quoting headlines tilt news score (~35% when both Yahoo and X-RSS fire); disable with `--no-x-quote-news`. Polymarket tilts social (~35% when open markets exist) and `why` notes source plus news/reddit agree/diverge; disable with `--no-polymarket`.
+Hard filters still drop illiquid names, tight ranges, resistance-hugging prices, below-SMA200 (unless `--allow-below-200`), death crosses, and news vetoes. X-quoting headlines tilt news score (~35% when both Yahoo and X-RSS fire); disable with `--no-x-quote-news`. Polymarket tilts social (~35% when open markets exist) and `why` notes source plus news/reddit agree/diverge; disable with `--no-polymarket`. Curated 13F managers tilt social (~30% when held) with `13F: …` tags; disable with `--no-institutions`. 13F data is quarterly and lagged (~45d); SEC fair-access needs a contact email in the User-Agent (`SCREENER_SEC_USER_AGENT`, default includes `research@example.com`).
 
 ## Notes
 

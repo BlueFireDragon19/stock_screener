@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass
 from stock_screener.config import ScreenerConfig
 from stock_screener.data.earnings import EarningsAssessment
 from stock_screener.data.grok_x import GrokXAssessment
+from stock_screener.data.institutions import InstitutionAssessment
 from stock_screener.data.news import NewsAssessment
 from stock_screener.data.polymarket import PolymarketAssessment, intersection_note
 from stock_screener.data.reddit import RedditAssessment
@@ -51,6 +52,9 @@ class ScreenRow:
     polymarket_score: float
     polymarket_markets: int
     polymarket_question: str
+    institutions_score: float
+    institutions_managers: int
+    institutions_detail: str
     composite: float
     pass_filters: bool
     filter_reason: str
@@ -86,8 +90,10 @@ def blend_social(
     reddit: RedditAssessment,
     grok: GrokXAssessment | None,
     polymarket: PolymarketAssessment | None = None,
+    institutions: InstitutionAssessment | None = None,
     *,
     polymarket_weight: float = 0.35,
+    institutions_weight: float = 0.30,
 ) -> tuple[float, str]:
     if grok is not None and grok.used and grok.label not in {"error", "skipped"}:
         score = 0.45 * reddit.score + 0.55 * grok.score
@@ -102,6 +108,13 @@ def blend_social(
         detail = f"{detail}; {polymarket.reason}"
     else:
         detail = f"{detail}; polymarket=n/a"
+
+    if institutions is not None and institutions.used:
+        w = max(0.0, min(0.5, float(institutions_weight)))
+        score = (1.0 - w) * score + w * institutions.score
+        detail = f"{detail}; {institutions.reason}"
+    else:
+        detail = f"{detail}; 13F=n/a"
     return score, detail
 
 
@@ -230,8 +243,10 @@ def _base_row(
     reason: str,
     why: str,
     polymarket: PolymarketAssessment | None = None,
+    institutions: InstitutionAssessment | None = None,
 ) -> ScreenRow:
     pm = polymarket
+    inst = institutions
     return ScreenRow(
         mode=mode,
         ticker=ticker,
@@ -272,6 +287,9 @@ def _base_row(
         polymarket_score=round(pm.score, 1) if pm and pm.used else 50.0,
         polymarket_markets=pm.n_markets if pm else 0,
         polymarket_question=pm.top_question if pm and pm.used else "",
+        institutions_score=round(inst.score, 1) if inst and inst.used else 50.0,
+        institutions_managers=inst.n_managers if inst else 0,
+        institutions_detail=inst.reason if inst else "13F: n/a",
         composite=composite,
         pass_filters=ok,
         filter_reason=reason,
@@ -289,13 +307,16 @@ def build_support_row(
     grok: GrokXAssessment | None,
     config: ScreenerConfig,
     polymarket: PolymarketAssessment | None = None,
+    institutions: InstitutionAssessment | None = None,
 ) -> ScreenRow:
     ok, reason = apply_support_filters(tech, news, config, market)
     social_score, social_detail = blend_social(
         reddit,
         grok,
         polymarket,
+        institutions,
         polymarket_weight=config.polymarket_weight,
+        institutions_weight=config.institutions_weight,
     )
     score = (
         support_composite(tech, market, news, earnings, social_score, config)
@@ -336,6 +357,7 @@ def build_support_row(
         reason,
         why,
         polymarket=polymarket,
+        institutions=institutions,
     )
 
 
@@ -349,13 +371,16 @@ def build_catalyst_row(
     grok: GrokXAssessment | None,
     config: ScreenerConfig,
     polymarket: PolymarketAssessment | None = None,
+    institutions: InstitutionAssessment | None = None,
 ) -> ScreenRow:
     ok, reason = apply_catalyst_filters(tech, news, earnings, config, market)
     social_score, social_detail = blend_social(
         reddit,
         grok,
         polymarket,
+        institutions,
         polymarket_weight=config.polymarket_weight,
+        institutions_weight=config.institutions_weight,
     )
     score = (
         catalyst_composite(tech, market, news, earnings, social_score, config)
@@ -406,6 +431,7 @@ def build_catalyst_row(
         reason,
         why,
         polymarket=polymarket,
+        institutions=institutions,
     )
 
 

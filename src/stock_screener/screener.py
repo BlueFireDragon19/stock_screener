@@ -21,6 +21,10 @@ from stock_screener.data.polymarket import (
     PolymarketAssessment,
     fetch_polymarket_assessment,
 )
+from stock_screener.data.institutions import (
+    InstitutionAssessment,
+    build_institution_assessments,
+)
 from stock_screener.data.prices import download_intraday, download_prices, series_for
 from stock_screener.data.reddit import (
     RedditAssessment,
@@ -361,6 +365,11 @@ def run_screener(
             covered = sum(1 for a in polymarket_map.values() if a.used)
             logger.info("Polymarket coverage: %d / %d liquid", covered, len(liquid))
 
+        institutions_map: dict[str, InstitutionAssessment] = {}
+        if cfg.enable_institutions and (want_support or want_catalyst):
+            logger.info("Fetching curated 13F holdings (SEC EDGAR)")
+            institutions_map = build_institution_assessments(set(liquid))
+
         neutral_news = NewsAssessment(
             score=50.0,
             veto=False,
@@ -383,6 +392,7 @@ def run_screener(
                 earn = earnings_map.get(ticker, neutral_earnings)
                 reddit = reddit_map.get(ticker, neutral_reddit)
                 pm = polymarket_map.get(ticker)
+                inst = institutions_map.get(ticker)
                 grok = grok_map.get(ticker)
                 if want_support:
                     support_rows.append(
@@ -396,6 +406,7 @@ def run_screener(
                             grok,
                             cfg,
                             polymarket=pm,
+                            institutions=inst,
                         )
                     )
                 if want_catalyst:
@@ -410,6 +421,7 @@ def run_screener(
                             grok,
                             cfg,
                             polymarket=pm,
+                            institutions=inst,
                         )
                     )
             return support_rows, catalyst_rows

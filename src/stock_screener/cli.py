@@ -75,6 +75,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip Polymarket odds (blended into support/catalyst social)",
     )
+    p.add_argument(
+        "--no-institutions",
+        action="store_true",
+        help="Skip curated 13F hedge-fund/manager holdings overlay",
+    )
     p.add_argument("--no-reddit", action="store_true")
     p.add_argument("--no-earnings", action="store_true")
     p.add_argument("--no-fundamentals", action="store_true")
@@ -214,6 +219,7 @@ def main(argv: list[str] | None = None) -> int:
         grok_top_n=args.grok_top,
         enable_x_quote_news=not args.no_x_quote_news,
         enable_polymarket=not args.no_polymarket,
+        enable_institutions=not args.no_institutions,
     )
 
     support_df, catalyst_df, fund_df, pol_df, trump_df, athdip_df, market = run_screener(
@@ -250,7 +256,7 @@ def main(argv: list[str] | None = None) -> int:
     }
 
     if args.mode in {"support", "both", "all"}:
-        print("\n=== SUPPORT (near support / mean-reversion · Polymarket social) ===")
+        print("\n=== SUPPORT (near support / mean-reversion · Polymarket + 13F social) ===")
         if support_df.empty:
             print("No names passed support filters.")
         else:
@@ -273,6 +279,8 @@ def main(argv: list[str] | None = None) -> int:
                     "news_score",
                     "polymarket_score",
                     "polymarket_markets",
+                    "institutions_score",
+                    "institutions_managers",
                     "fund_score",
                     "peg",
                     "fcf_yield",
@@ -285,7 +293,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Saved {len(support_df)} rows → {path}")
 
     if args.mode in {"catalyst", "both", "all"}:
-        print("\n=== CATALYST (news / earnings / momentum pop · Polymarket social) ===")
+        print("\n=== CATALYST (news / earnings / momentum pop · Polymarket + 13F social) ===")
         if catalyst_df.empty:
             print("No names passed catalyst filters.")
         else:
@@ -310,6 +318,8 @@ def main(argv: list[str] | None = None) -> int:
                     "news_score",
                     "polymarket_score",
                     "polymarket_markets",
+                    "institutions_score",
+                    "institutions_managers",
                     "momentum_score",
                     "social_score",
                     "fund_score",

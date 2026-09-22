@@ -52,6 +52,20 @@ def _load_dotenv() -> None:
         os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
+def _fnum(x) -> float | None:
+    if x is None or (isinstance(x, float) and x != x):
+        return None
+    try:
+        if pd.isna(x):
+            return None
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return None
+
+
 def _tickers_from_csv(path: Path) -> list[str]:
     if not path.exists():
         return []
@@ -72,10 +86,75 @@ def _tickers_from_csv(path: Path) -> list[str]:
     return out
 
 
+def _metrics_from_modes(output: Path) -> dict[str, dict]:
+    """Best-effort RSI / politician flow per ticker from screen_*.csv."""
+    metrics: dict[str, dict] = {}
+    for mode in MODES:
+        path = output / f"screen_{mode}.csv"
+        if not path.exists():
+            continue
+        try:
+            df = pd.read_csv(path)
+        except Exception:  # noqa: BLE001
+            continue
+        if "ticker" not in df.columns:
+            continue
+        for _, row in df.iterrows():
+            t = str(row.get("ticker") or "").strip().upper()
+            if not t:
+                continue
+            m = metrics.setdefault(t, {})
+            rsi = _fnum(row.get("rsi14"))
+            if rsi is not None:
+                m.setdefault("rsi14", rsi)
+            if mode == "athdip":
+                rsi4 = _fnum(row.get("rsi_4h"))
+                # ScreenRow defaults rsi_4h=50 for non-athdip; only trust athdip rows
+                if rsi4 is not None:
+                    m["rsi4h"] = rsi4
+            if mode == "politicians":
+                buys = _fnum(row.get("buy_count"))
+                sells = _fnum(row.get("sell_count"))
+                if buys is not None:
+                    m["pol_buys"] = int(buys)
+                if sells is not None:
+                    m["pol_sells"] = int(sells)
+    return metrics
+
+
+def classify_signal(
+    kind: str,
+    tags: str,
+    *,
+    pol_buys: int = 0,
+    pol_sells: int = 0,
+) -> str:
+    """Long-only watchlist lean: BUY / SELL / MIXED."""
+    kind_l = (kind or "").lower()
+    tags_l = (tags or "").lower()
+    pol_sell_lean = "politicians" in tags_l and pol_sells > pol_buys
+    long_modes = any(
+        m in tags_l for m in ("athdip", "support", "catalyst", "fundamentals", "trump")
+    )
+    if kind_l == "conflict" or (pol_sell_lean and long_modes):
+        return "MIXED"
+    if pol_sell_lean and not long_modes:
+        return "SELL"
+    return "BUY"
+
+
+def _fmt_rsi(rsi14: float | None, rsi4h: float | None) -> str:
+    parts: list[str] = []
+    if rsi14 is not None:
+        parts.append(f"RSI {rsi14:.0f}")
+    if rsi4h is not None:
+        parts.append(f"4h {rsi4h:.0f}")
+    return " / ".join(parts)
+
+
 def collect_current(output: Path = OUTPUT) -> dict:
     by_mode: dict[str, list[str]] = {}
     for mode in MODES:
-        # Prefer screen_{mode}.csv; also accept screen.csv for single-mode runs
         path = output / f"screen_{mode}.csv"
         if not path.exists() and mode == "support":
             alt = output / "screen.csv"
@@ -83,6 +162,7 @@ def collect_current(output: Path = OUTPUT) -> dict:
                 path = alt
         by_mode[mode] = _tickers_from_csv(path)
 
+    metrics = _metrics_from_modes(output)
     focus_rows: list[dict] = []
     focus_path = output / "today_focus.csv"
     if focus_path.exists():
@@ -92,12 +172,34 @@ def collect_current(output: Path = OUTPUT) -> dict:
                 t = str(row.get("ticker") or "").strip().upper()
                 if not t:
                     continue
+                kind = str(row.get("kind") or "")
+                tags = str(row.get("tags") or "")
+                buys = int(_fnum(row.get("polBuys")) or metrics.get(t, {}).get("pol_buys") or 0)
+                sells = int(
+                    _fnum(row.get("polSells")) or metrics.get(t, {}).get("pol_sells") or 0
+                )
+                signal = str(row.get("signal") or "").strip().upper()
+                if signal not in {"BUY", "SELL", "MIXED"}:
+                    signal = classify_signal(
+                        kind, tags, pol_buys=buys, pol_sells=sells
+                    )
+                rsi14 = _fnum(row.get("rsi14"))
+                if rsi14 is None:
+                    rsi14 = metrics.get(t, {}).get("rsi14")
+                rsi4h = _fnum(row.get("rsi4h"))
+                if rsi4h is None:
+                    rsi4h = metrics.get(t, {}).get("rsi4h")
                 focus_rows.append(
                     {
                         "ticker": t,
-                        "kind": str(row.get("kind") or ""),
+                        "kind": kind,
+                        "signal": signal,
                         "why": str(row.get("why") or "")[:160],
-                        "tags": str(row.get("tags") or ""),
+                        "tags": tags,
+                        "rsi14": rsi14,
+                        "rsi4h": rsi4h,
+                        "pol_buys": buys,
+                        "pol_sells": sells,
                     }
                 )
         except Exception:  # noqa: BLE001
@@ -111,12 +213,27 @@ def collect_current(output: Path = OUTPUT) -> dict:
                 seen.add(t)
                 union.append(t)
 
+    ticker_meta: dict[str, dict] = {}
+    for t in union:
+        m = metrics.get(t) or {}
+        modes = [mode for mode, ts in by_mode.items() if t in (ts or [])]
+        tags = " · ".join(modes)
+        buys = int(m.get("pol_buys") or 0)
+        sells = int(m.get("pol_sells") or 0)
+        ticker_meta[t] = {
+            "signal": classify_signal("", tags, pol_buys=buys, pol_sells=sells),
+            "rsi14": m.get("rsi14"),
+            "rsi4h": m.get("rsi4h"),
+            "modes": modes,
+        }
+
     return {
         "as_of": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "by_mode": by_mode,
         "focus": [r["ticker"] for r in focus_rows],
         "focus_detail": focus_rows,
+        "ticker_meta": ticker_meta,
         "all": union,
     }
 
@@ -159,6 +276,7 @@ def _modes_for(ticker: str, cur: dict) -> list[str]:
 def format_alert(new: dict, cur: dict) -> str:
     lines: list[str] = []
     lines.append(f"Screener new signals · {cur.get('as_of')}")
+    meta = cur.get("ticker_meta") or {}
     if new.get("focus"):
         lines.append("")
         lines.append("New in Today's focus:")
@@ -167,10 +285,14 @@ def format_alert(new: dict, cur: dict) -> str:
             d = detail.get(t) or {}
             why = d.get("why") or ""
             kind = d.get("kind") or ""
+            signal = d.get("signal") or meta.get(t, {}).get("signal") or "BUY"
+            rsi = _fmt_rsi(d.get("rsi14"), d.get("rsi4h"))
             modes = ", ".join(_modes_for(t, cur)) or (d.get("tags") or "")
-            bit = f"  • {t}"
+            bit = f"  • {t} · {signal}"
             if kind:
                 bit += f" [{kind}]"
+            if rsi:
+                bit += f" · {rsi}"
             if modes:
                 bit += f" · {modes}"
             if why:
@@ -180,13 +302,28 @@ def format_alert(new: dict, cur: dict) -> str:
         lines.append("")
         lines.append("New in any mode:")
         for t in new["all"]:
+            m = meta.get(t) or {}
+            signal = m.get("signal") or "BUY"
+            rsi = _fmt_rsi(m.get("rsi14"), m.get("rsi4h"))
             modes = ", ".join(_modes_for(t, cur)) or "?"
-            lines.append(f"  • {t} · {modes}")
+            bit = f"  • {t} · {signal}"
+            if rsi:
+                bit += f" · {rsi}"
+            bit += f" · {modes}"
+            lines.append(bit)
     if new.get("by_mode"):
         lines.append("")
         lines.append("By mode:")
         for mode, tickers in new["by_mode"].items():
-            lines.append(f"  {mode}: {', '.join(tickers)}")
+            bits = []
+            for t in tickers:
+                m = meta.get(t) or {}
+                rsi = _fmt_rsi(m.get("rsi14"), m.get("rsi4h"))
+                label = t
+                if rsi:
+                    label += f" ({rsi})"
+                bits.append(label)
+            lines.append(f"  {mode}: {', '.join(bits)}")
     if not new.get("all") and not new.get("focus"):
         lines.append("No new symbols vs last snapshot.")
     return "\n".join(lines)
@@ -195,7 +332,6 @@ def format_alert(new: dict, cur: dict) -> str:
 def notify_desktop(title: str, body: str) -> None:
     if platform.system() != "Darwin":
         return
-    # Keep notification short
     short = body.replace("\n", " · ")[:180]
     script = (
         f'display notification {json.dumps(short)} with title {json.dumps(title)}'
@@ -263,8 +399,6 @@ def run(*, desktop: bool = True, slack: bool = True, dry_run: bool = False) -> i
         save_snapshot(cur)
         print(f"Updated snapshot → {SNAPSHOT}")
     elif not dry_run:
-        # Still refresh snapshot so drops don't re-alert as new later incorrectly
-        # Actually: if we update when no new, tickers that left and return later WILL alert — good.
         save_snapshot(cur)
         print(f"Snapshot refreshed (no new symbols) → {SNAPSHOT}")
 

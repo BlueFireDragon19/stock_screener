@@ -1,18 +1,20 @@
 # Screener dashboard
 
-**As of:** 2026-09-09
+**As of:** 2026-09-17
 
 ## Today's focus
 
 Watchlist only — not investment advice.
 
-| Kind | Ticker | Price | Why | Modes | Sector | PE | PEG | FCF% | ROE% |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| conflict | AMGN | 391.27 | Athdip dip vs Congress sells (0/3) · px 391.27 < trigger 393.17 (2026-09-08) | athdip · politicians | — | 24.3 | 2.11 | 4.1% | 91.5% |
-| single | AFL | 114.89 | Top support score today | support · catalyst · fundamentals · politicians | — | 12.4 | 1.18 | 8.9% | 16.9% |
-| single | ADM | 85.85 | Top catalyst score today | catalyst | — | 23.6 | 1.05 | 2.8% | 7.6% |
-| single | BA | 211.21 | Top Trump tracker · pol sells=2 | support · politicians · trump | — | 74.3 | 1.53 | 3.4% | 173.5% |
-| single | CHWY | 20.75 | Top politicians · buys=4 sells=0 | politicians | — | 34.6 | 0.47 | 5.5% | 63.8% |
+| Kind | Ticker | Signal | Price | RSI | Why | Modes | Sector | PE | PEG | FCF% | ROE% |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| confirm | AMAT | BUY | 417.40 | 33.9 | Athdip + Congress buys (1/0) · px 417.40 < trigger 421.17 (2026-09-15) | athdip · support · catalyst · fundamentals · politicians | Technology | 35.8 | 0.83 | 0.9% | 41.1% |
+| intersection | ADI | BUY | 362.65 | 46.1 | Support+fund confirm | support · catalyst · fundamentals | Technology | 42.9 | 0.54 | 2.4% | 12.2% |
+| intersection | LLY | BUY | 1152.44 | 47.2 | Support+fund confirm | support · catalyst · fundamentals · trump | Healthcare | 38.2 | 1.12 | 1.1% | 102.3% |
+| single | UNH | MIXED | 375.21 | 36.9 | Top support score today | support · catalyst · fundamentals · politicians · trump | Healthcare | 24.1 | 1.02 | 7.2% | 14.2% |
+| single | AMD | MIXED | 545.09 | 62.8 | Top catalyst score today | catalyst · politicians · trump | — | 157.0 | 0.57 | 0.9% | 10.2% |
+| single | BA | MIXED | 197.00 | 31.5 | Top Trump tracker · pol sells=1 | support · catalyst · politicians · trump | — | 72.6 | 1.48 | 3.5% | 173.5% |
+| single | CHWY | BUY | 20.51 | — | Top politicians · buys=4 sells=0 | politicians | — | 31.6 | 0.42 | 5.4% | 72.0% |
 
 Source: `output/today_focus.csv` · rebuild with `python3 scripts/build_screen_dashboard.py`
 

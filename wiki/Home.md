@@ -1,6 +1,6 @@
 # Screener dashboard
 
-**As of:** 2026-09-17
+**As of:** 2026-09-22
 
 ## Today's focus
 
@@ -8,13 +8,14 @@ Watchlist only — not investment advice.
 
 | Kind | Ticker | Signal | Price | RSI | Why | Modes | Sector | PE | PEG | FCF% | ROE% |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| confirm | AMAT | BUY | 417.40 | 33.9 | Athdip + Congress buys (1/0) · px 417.40 < trigger 421.17 (2026-09-15) | athdip · support · catalyst · fundamentals · politicians | Technology | 35.8 | 0.83 | 0.9% | 41.1% |
-| intersection | ADI | BUY | 362.65 | 46.1 | Support+fund confirm | support · catalyst · fundamentals | Technology | 42.9 | 0.54 | 2.4% | 12.2% |
-| intersection | LLY | BUY | 1152.44 | 47.2 | Support+fund confirm | support · catalyst · fundamentals · trump | Healthcare | 38.2 | 1.12 | 1.1% | 102.3% |
-| single | UNH | MIXED | 375.21 | 36.9 | Top support score today | support · catalyst · fundamentals · politicians · trump | Healthcare | 24.1 | 1.02 | 7.2% | 14.2% |
-| single | AMD | MIXED | 545.09 | 62.8 | Top catalyst score today | catalyst · politicians · trump | — | 157.0 | 0.57 | 0.9% | 10.2% |
-| single | BA | MIXED | 197.00 | 31.5 | Top Trump tracker · pol sells=1 | support · catalyst · politicians · trump | — | 72.6 | 1.48 | 3.5% | 173.5% |
-| single | CHWY | BUY | 20.51 | — | Top politicians · buys=4 sells=0 | politicians | — | 31.6 | 0.42 | 5.4% | 72.0% |
+| conflict | ALL | MIXED | 229.30 | 27.0 | Athdip dip vs Congress sells (0/1) · trigger today (2026-09-22) | athdip · support · catalyst · fundamentals · politicians | Financial Services | 4.6 | 1.79 | 26.2% | 46.1% |
+| athdip | BAC | BUY | 56.48 | 26.5 | Athdip · trigger today (2026-09-22) | athdip · trump | — | 13.1 | 0.87 | — | 11.2% |
+| intersection | AMP | BUY | 514.90 | 31.3 | Athdip + multi-mode overlap · trigger today (2026-09-22) | athdip · support · catalyst · fundamentals | Financial Services | 12.5 | 1.51 | 6.4% | 63.4% |
+| intersection | AEE | BUY | 101.69 | 30.6 | Athdip + multi-mode overlap · trigger today (2026-09-22) | athdip · support · catalyst · fundamentals | Utilities | 17.9 | 2.51 | -6.3% | 11.9% |
+| single | AFL | MIXED | 114.59 | 38.7 | Top support score today | support · catalyst · fundamentals · politicians | Financial Services | 12.4 | 1.18 | 9.0% | 16.9% |
+| single | AZO | MIXED | 2934.51 | 49.9 | Top catalyst score today | support · catalyst · politicians | — | 20.2 | 1.27 | — | — |
+| single | LMT | BUY | 521.55 | — | Top Trump tracker | trump | — | 19.2 | 1.01 | 4.6% | 89.2% |
+| single | CHWY | BUY | 19.77 | — | Top politicians · buys=4 sells=0 | politicians | — | 30.4 | 0.42 | 5.7% | 72.0% |
 
 Source: `output/today_focus.csv` · rebuild with `python3 scripts/build_screen_dashboard.py`
 

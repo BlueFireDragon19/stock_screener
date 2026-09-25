@@ -86,7 +86,7 @@ After a screen run, rebuild the Cursor canvas + `output/today_focus.csv`:
 python3 scripts/build_screen_dashboard.py
 ```
 
-That also diffs vs `output/signal_snapshot.json` and alerts on **new** symbols (stdout + macOS notification; Slack if `SCREENER_SLACK_WEBHOOK` is set). First run only saves a baseline. For near-real-time coverage, re-run the screen + dashboard on an interval during market hours (e.g. every 30 minutes).
+That also diffs vs `output/signal_snapshot.json` and alerts on **new** symbols (stdout + macOS notification; Slack if `SCREENER_SLACK_WEBHOOK` is set). Alerts include **BUY/SELL/MIXED** lean plus **daily RSI** (and **4h RSI** when athdip). First run only saves a baseline. For near-real-time coverage, re-run the screen + dashboard on an interval during market hours (e.g. every 30 minutes).
 
 Project skill (for agents / teammates): `.cursor/skills/daily-screen/SKILL.md` — covers the full reproduce path (screen → focus → canvas).
 
